@@ -91,13 +91,13 @@ jobs:
       - name: Create package
         run: |
           cd target/release
-          tar czf ${{ env.PROJECT_NAME }}-macos-x86_64.tar.gz ${{ env.PROJECT_NAME }}
+          tar czf ${{ env.PROJECT_NAME }}-macos.tar.gz ${{ env.PROJECT_NAME }}
       
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-macos
-          path: target/release/${{ env.PROJECT_NAME }}-macos-x86_64.tar.gz
+          path: target/release/${{ env.PROJECT_NAME }}-macos.tar.gz
 
   # 创建 GitHub Release
   create-release:
@@ -115,35 +115,15 @@ jobs:
         with:
           path: artifacts
       
-      - name: Generate changelog
-        id: changelog
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          # 从 CHANGELOG.md 提取当前版本的变更
-          if [ -f CHANGELOG.md ]; then
-            # 提取版本之间的内容
-            awk "/^## \[$VERSION\]/ { flag=1; next } /^## \[/ { flag=0 } flag" CHANGELOG.md > RELEASE_NOTES.md || true
-          fi
-          
-          # 如果没有找到，使用默认文本
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "## What's Changed" > RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            echo "* See [CHANGELOG.md](CHANGELOG.md) for details" >> RELEASE_NOTES.md
-          fi
-      
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/release-linux/*
             artifacts/release-windows/*
             artifacts/release-macos/*
-          body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
-          generate_release_notes: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,10 +3,11 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.1.1--dev-blue.svg)](https://github.com/yourusername/fastview/releases)
+[![Version](https://img.shields.io/badge/version-0.1.1--dev-blue.svg)](https://github.com/wsyqn6/fastview/releases)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg)](https://github.com/)
-[![CI](https://github.com/yourusername/fastview/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/fastview/actions/workflows/ci.yml)
+
+<!-- TODO: Replace 'yourusername' with your actual GitHub username before publishing -->
 
 **A fast, lightweight, and modern image viewer built with Rust**
 
@@ -48,7 +49,7 @@ FastView is a minimalist image viewer designed for speed and simplicity. Built w
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/fastview.git
+git clone https://github.com/wsyqn6/fastview.git
 cd fastview
 
 # Build in release mode
@@ -60,7 +61,7 @@ cargo build --release
 
 #### Pre-built Binaries
 
-Download the latest release from the [Releases page](https://github.com/yourusername/fastview/releases).
+Download the latest release from the [Releases page](https://github.com/wsyqn6/fastview/releases).
 
 ### ⌨️ Keyboard Shortcuts
 
@@ -156,7 +157,7 @@ FastView 是一款极简主义图片查看器，专注于速度和简洁。使�
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/fastview.git
+git clone https://github.com/wsyqn6/fastview.git
 cd fastview
 
 # 发布模式编译
@@ -168,7 +169,7 @@ cargo build --release
 
 #### 预编译版本
 
-从 [Releases 页面](https://github.com/yourusername/fastview/releases) 下载最新版本。
+从 [Releases 页面](https://github.com/wsyqn6/fastview/releases) 下载最新版本。
 
 ### ⌨️ 快捷键
 
