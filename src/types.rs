@@ -58,9 +58,6 @@ pub enum TextKey {
     RotateCounterClockwise,
     ToggleFullscreen,
     
-    // Settings menu
-    OpenSettingsPanel,
-    
     // Help menu
     ShortcutsHelp,
     AboutFastView,
@@ -70,6 +67,7 @@ pub enum TextKey {
     Version,
     GitHub,
     OK,
+    AppDescription,
     
     // Status
     Fit,
@@ -119,13 +117,13 @@ impl TextKey {
                 TextKey::RotateClockwise => "顺时针旋转",
                 TextKey::RotateCounterClockwise => "逆时针旋转",
                 TextKey::ToggleFullscreen => "切换全屏",
-                TextKey::OpenSettingsPanel => "打开设置面板...",
                 TextKey::ShortcutsHelp => "快捷键",
                 TextKey::AboutFastView => "关于 FastView",
                 TextKey::CheckForUpdates => "检查更新...",
                 TextKey::Version => "版本",
                 TextKey::GitHub => "GitHub",
                 TextKey::OK => "确定",
+                TextKey::AppDescription => "一个轻量级图片查看器",
                 TextKey::Navigation => "导航",
                 TextKey::ZoomAndView => "缩放与视图",
                 TextKey::Rotation => "旋转",
@@ -165,13 +163,13 @@ impl TextKey {
                 TextKey::RotateClockwise => "Rotate Clockwise",
                 TextKey::RotateCounterClockwise => "Rotate Counter-Clockwise",
                 TextKey::ToggleFullscreen => "Toggle Fullscreen",
-                TextKey::OpenSettingsPanel => "Open Settings Panel...",
                 TextKey::ShortcutsHelp => "Shortcuts",
                 TextKey::AboutFastView => "About FastView",
                 TextKey::CheckForUpdates => "Check for Updates...",
                 TextKey::Version => "Version",
                 TextKey::GitHub => "GitHub",
                 TextKey::OK => "OK",
+                TextKey::AppDescription => "A lightweight image viewer",
                 TextKey::Navigation => "Navigation",
                 TextKey::ZoomAndView => "Zoom & View",
                 TextKey::Rotation => "Rotation",

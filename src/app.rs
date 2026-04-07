@@ -406,13 +406,10 @@ impl eframe::App for FastViewApp {
                             }
                         });
 
-                        // 设置菜单
-                        ui.menu_button(self.t(TextKey::MenuSettings), |ui| {
-                            if ui.button(self.t(TextKey::OpenSettingsPanel)).clicked() {
-                                self.show_settings = true;
-                                ui.close();
-                            }
-                        });
+                        // 设置按钮（直接点击打开，无需下拉）
+                        if ui.button(self.t(TextKey::MenuSettings)).clicked() {
+                            self.show_settings = true;
+                        }
 
                         // 帮助菜单
                         ui.menu_button(self.t(TextKey::MenuHelp), |ui| {
@@ -838,19 +835,21 @@ impl eframe::App for FastViewApp {
                             self.is_drag_mode = true;
                         }
                         egui::Key::Escape => {
-                            if self.is_fullscreen {
-                                // 全屏状态下：退出全屏
-                                self.toggle_fullscreen(ctx);
-                            } else {
-                                // 非全屏状态下：关闭程序
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            }
-                            // 同时关闭弹窗
+                            // 优先级1: 关闭弹出窗口
                             if self.show_shortcuts {
                                 self.show_shortcuts = false;
-                            }
-                            if self.show_settings {
+                            } else if self.show_settings {
                                 self.show_settings = false;
+                            } else if self.show_about {
+                                self.show_about = false;
+                            }
+                            // 优先级2: 退出全屏
+                            else if self.is_fullscreen {
+                                self.toggle_fullscreen(ctx);
+                            }
+                            // 优先级3: 关闭程序
+                            else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         }
                         _ => {}
@@ -882,14 +881,15 @@ impl eframe::App for FastViewApp {
             let current_show_status = self.settings.show_status_bar;
 
 
+            // Settings window - 卡片式设计，无标题栏
             egui::Window::new(settings_text)
                 .open(&mut self.show_settings)
+                .title_bar(false)  // 移除标题栏
                 .resizable(false)
-                .fixed_size([320.0, 220.0])
-                .default_pos(egui::Pos2::new(
-                    ctx.available_rect().center().x - 160.0,
-                    ctx.available_rect().center().y - 110.0,
-                ))
+                .collapsible(false)
+                .fixed_size([320.0, 240.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])  // 居中显示
+                .frame(egui::Frame::window(&ctx.style()))  // 使用窗口样式
                 .show(ctx, |ui: &mut egui::Ui| {
                     let mut temp_lang = current_lang;
                     let mut temp_max_cache = current_max_cache;
@@ -1046,6 +1046,7 @@ impl eframe::App for FastViewApp {
             let version_label = self.t(TextKey::Version);
             let github_label = self.t(TextKey::GitHub);
             let ok_text = self.t(TextKey::OK);
+            let description = self.t(TextKey::AppDescription);
 
             egui::Window::new(title)
                 .open(&mut self.show_about)
@@ -1059,7 +1060,7 @@ impl eframe::App for FastViewApp {
                         ui.heading("FastView");
                         ui.label(format!("{} {}", version_label, version));
                         ui.add_space(10.0);
-                        ui.label("A lightweight image viewer");
+                        ui.label(description);
                         ui.add_space(10.0);
                         ui.hyperlink_to(
                             format!("{}: https://github.com/wsyqn6/fastview", github_label),
