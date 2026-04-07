@@ -145,7 +145,7 @@ impl TextKey {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum ZoomMode {
     Fit,
     Fill,

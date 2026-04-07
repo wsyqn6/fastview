@@ -1,6 +1,6 @@
-mod types;
-mod fonts;
 mod app;
+mod fonts;
+mod types;
 
 use app::FastViewApp;
 use eframe::egui;
@@ -12,7 +12,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([400.0, 300.0])
-            .with_decorations(true)
+            .with_decorations(true) // 使用系统原生窗口装饰
             .with_fullscreen(false),
         ..Default::default()
     };
