@@ -1,0 +1,32 @@
+[package]
+name = "fastview"
+version = "0.1.1"
+description = "A fast, lightweight, and modern image viewer built with Rust"
+authors = ["FastView Team"]
+license = "MIT"
+repository = "https://github.com/yourusername/fastview"
+homepage = "https://github.com/yourusername/fastview"
+documentation = "https://github.com/yourusername/fastview#readme"
+keywords = ["image", "viewer", "gui", "egui", "lightweight"]
+categories = ["multimedia::images", "gui"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eframe = "0.32"
+image = { version = "0.25", features = ["jpeg", "png", "gif", "webp", "bmp", "tiff", "ico", "rayon"] }
+rfd = "0.16"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+log = "0.4"
+env_logger = "0.11"
+once_cell = "1"
+kamadak-exif = "0.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

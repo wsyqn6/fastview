@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  PROJECT_NAME: fastview
+
+jobs:
+  # Linux 发布
+  release-linux:
+    name: Release Linux
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Create package
+        run: |
+          cd target/release
+          tar czf ${{ env.PROJECT_NAME }}-linux-x86_64.tar.gz ${{ env.PROJECT_NAME }}
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: target/release/${{ env.PROJECT_NAME }}-linux-x86_64.tar.gz
+
+  # Windows 发布
+  release-windows:
+    name: Release Windows
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Create package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target\release\${{ env.PROJECT_NAME }}.exe" -DestinationPath "target\release\${{ env.PROJECT_NAME }}-windows-x86_64.zip"
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: target/release/${{ env.PROJECT_NAME }}-windows-x86_64.zip
+
+  # macOS 发布
+  release-macos:
+    name: Release macOS
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Build release
+        run: cargo build --release
+      
+      - name: Create package
+        run: |
+          cd target/release
+          tar czf ${{ env.PROJECT_NAME }}-macos-x86_64.tar.gz ${{ env.PROJECT_NAME }}
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: target/release/${{ env.PROJECT_NAME }}-macos-x86_64.tar.gz
+
+  # 创建 GitHub Release
+  create-release:
+    name: Create GitHub Release
+    needs: [release-linux, release-windows, release-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Generate changelog
+        id: changelog
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # 从 CHANGELOG.md 提取当前版本的变更
+          if [ -f CHANGELOG.md ]; then
+            # 提取版本之间的内容
+            awk "/^## \[$VERSION\]/ { flag=1; next } /^## \[/ { flag=0 } flag" CHANGELOG.md > RELEASE_NOTES.md || true
+          fi
+          
+          # 如果没有找到，使用默认文本
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "## What's Changed" > RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            echo "* See [CHANGELOG.md](CHANGELOG.md) for details" >> RELEASE_NOTES.md
+          fi
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/release-linux/*
+            artifacts/release-windows/*
+            artifacts/release-macos/*
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
