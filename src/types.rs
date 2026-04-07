@@ -99,18 +99,6 @@ pub enum TextKey {
     ResetSettings,
     Chinese,
     English,
-    
-    // Deprecated (kept for backward compatibility during migration)
-    #[deprecated(note = "Use MenuFile instead")]
-    File,
-    #[deprecated(note = "Use MenuView instead")]
-    View,
-    #[deprecated(note = "Use ToggleFullscreen instead")]
-    Fullscreen,
-    #[deprecated(note = "Use ShortcutsHelp instead")]
-    Shortcuts,
-    #[deprecated(note = "Use MenuSettings or OpenSettingsPanel instead")]
-    Settings,
 }
 
 impl TextKey {
@@ -161,17 +149,6 @@ impl TextKey {
                 TextKey::ResetSettings => "重置设置",
                 TextKey::Chinese => "中文",
                 TextKey::English => "英文",
-                // Deprecated - map to new keys
-                #[allow(deprecated)]
-                TextKey::File => "文件",
-                #[allow(deprecated)]
-                TextKey::View => "视图",
-                #[allow(deprecated)]
-                TextKey::Fullscreen => "全屏",
-                #[allow(deprecated)]
-                TextKey::Shortcuts => "快捷键",
-                #[allow(deprecated)]
-                TextKey::Settings => "设置",
             },
             Language::English => match self {
                 TextKey::MenuFile => "File",
@@ -218,17 +195,6 @@ impl TextKey {
                 TextKey::ResetSettings => "Reset Settings",
                 TextKey::Chinese => "Chinese",
                 TextKey::English => "English",
-                // Deprecated - map to new keys
-                #[allow(deprecated)]
-                TextKey::File => "File",
-                #[allow(deprecated)]
-                TextKey::View => "View",
-                #[allow(deprecated)]
-                TextKey::Fullscreen => "Fullscreen",
-                #[allow(deprecated)]
-                TextKey::Shortcuts => "Shortcuts",
-                #[allow(deprecated)]
-                TextKey::Settings => "Settings",
             },
         }
     }

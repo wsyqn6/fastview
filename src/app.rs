@@ -72,6 +72,7 @@ pub struct FastViewApp {
     pub settings: Settings,
     pub show_settings: bool,
     pub file_size: u64, // 文件大小（字节）
+    pub show_about: bool, // 控制"关于"对话框显示
 }
 
 impl Default for FastViewApp {
@@ -96,6 +97,7 @@ impl Default for FastViewApp {
             settings: Settings::default(),
             show_settings: false,
             file_size: 0,
+            show_about: false,
         }
     }
 }
@@ -136,6 +138,11 @@ impl FastViewApp {
 
     fn t(&self, key: TextKey) -> &'static str {
         key.text(self.settings.language)
+    }
+
+    /// 获取应用版本号
+    fn get_version(&self) -> &'static str {
+        env!("CARGO_PKG_VERSION")
     }
 
     // 格式化文件大小
