@@ -38,18 +38,44 @@ impl Default for Settings {
 
 #[derive(Debug, Clone, Copy)]
 pub enum TextKey {
-    // Menu
-    Settings,
-    File,
+    // Menu titles
+    MenuFile,
+    MenuView,
+    MenuSettings,
+    MenuHelp,
+    
+    // File menu
     OpenFile,
     Exit,
-    View,
-    Fullscreen,
-    Shortcuts,
+    
+    // View menu
+    FitToWindow,
+    OriginalSize,
+    FillWindow,
+    ZoomIn,
+    ZoomOut,
+    RotateClockwise,
+    RotateCounterClockwise,
+    ToggleFullscreen,
+    
+    // Settings menu
+    OpenSettingsPanel,
+    
+    // Help menu
+    ShortcutsHelp,
+    AboutFastView,
+    CheckForUpdates,
+    
+    // About dialog
+    Version,
+    GitHub,
+    OK,
+    
     // Status
     Fit,
     Fill,
     Original,
+    
     // Shortcuts window
     Navigation,
     ZoomAndView,
@@ -57,16 +83,13 @@ pub enum TextKey {
     System,
     PreviousNext,
     ZoomInOut,
-    FitToWindow,
-    OriginalSize,
-    FillWindow,
     RotateLeft,
     RotateRight,
-    ToggleFullscreen,
     DragMode,
     ExitFullscreen,
     ShowHideShortcuts,
     ClickToOpen,
+    
     // Settings
     General,
     Language,
@@ -76,19 +99,45 @@ pub enum TextKey {
     ResetSettings,
     Chinese,
     English,
+    
+    // Deprecated (kept for backward compatibility during migration)
+    #[deprecated(note = "Use MenuFile instead")]
+    File,
+    #[deprecated(note = "Use MenuView instead")]
+    View,
+    #[deprecated(note = "Use ToggleFullscreen instead")]
+    Fullscreen,
+    #[deprecated(note = "Use ShortcutsHelp instead")]
+    Shortcuts,
+    #[deprecated(note = "Use MenuSettings or OpenSettingsPanel instead")]
+    Settings,
 }
 
 impl TextKey {
     pub fn text(self, lang: Language) -> &'static str {
         match lang {
             Language::Chinese => match self {
-                TextKey::Settings => "设置",
-                TextKey::File => "文件",
-                TextKey::OpenFile => "打开文件",
+                TextKey::MenuFile => "文件",
+                TextKey::MenuView => "查看",
+                TextKey::MenuSettings => "设置",
+                TextKey::MenuHelp => "帮助",
+                TextKey::OpenFile => "打开文件...",
                 TextKey::Exit => "退出",
-                TextKey::View => "视图",
-                TextKey::Fullscreen => "全屏",
-                TextKey::Shortcuts => "快捷键",
+                TextKey::FitToWindow => "适应窗口",
+                TextKey::OriginalSize => "原始尺寸",
+                TextKey::FillWindow => "填充窗口",
+                TextKey::ZoomIn => "放大",
+                TextKey::ZoomOut => "缩小",
+                TextKey::RotateClockwise => "顺时针旋转",
+                TextKey::RotateCounterClockwise => "逆时针旋转",
+                TextKey::ToggleFullscreen => "切换全屏",
+                TextKey::OpenSettingsPanel => "打开设置面板...",
+                TextKey::ShortcutsHelp => "快捷键",
+                TextKey::AboutFastView => "关于 FastView",
+                TextKey::CheckForUpdates => "检查更新...",
+                TextKey::Version => "版本",
+                TextKey::GitHub => "GitHub",
+                TextKey::OK => "确定",
                 TextKey::Navigation => "导航",
                 TextKey::ZoomAndView => "缩放与视图",
                 TextKey::Rotation => "旋转",
@@ -98,12 +147,8 @@ impl TextKey {
                 TextKey::Original => "原始",
                 TextKey::PreviousNext => "上一张/下一张",
                 TextKey::ZoomInOut => "放大/缩小",
-                TextKey::FitToWindow => "适应窗口",
-                TextKey::OriginalSize => "原始尺寸",
-                TextKey::FillWindow => "填充窗口",
                 TextKey::RotateLeft => "逆时针旋转",
                 TextKey::RotateRight => "顺时针旋转",
-                TextKey::ToggleFullscreen => "切换全屏",
                 TextKey::DragMode => "拖动模式（按住空格）",
                 TextKey::ExitFullscreen => "退出全屏",
                 TextKey::ShowHideShortcuts => "显示/隐藏快捷键",
@@ -116,15 +161,40 @@ impl TextKey {
                 TextKey::ResetSettings => "重置设置",
                 TextKey::Chinese => "中文",
                 TextKey::English => "英文",
+                // Deprecated - map to new keys
+                #[allow(deprecated)]
+                TextKey::File => "文件",
+                #[allow(deprecated)]
+                TextKey::View => "视图",
+                #[allow(deprecated)]
+                TextKey::Fullscreen => "全屏",
+                #[allow(deprecated)]
+                TextKey::Shortcuts => "快捷键",
+                #[allow(deprecated)]
+                TextKey::Settings => "设置",
             },
             Language::English => match self {
-                TextKey::Settings => "Settings",
-                TextKey::File => "File",
-                TextKey::OpenFile => "Open File",
+                TextKey::MenuFile => "File",
+                TextKey::MenuView => "View",
+                TextKey::MenuSettings => "Settings",
+                TextKey::MenuHelp => "Help",
+                TextKey::OpenFile => "Open File...",
                 TextKey::Exit => "Exit",
-                TextKey::View => "View",
-                TextKey::Fullscreen => "Fullscreen",
-                TextKey::Shortcuts => "Shortcuts",
+                TextKey::FitToWindow => "Fit to Window",
+                TextKey::OriginalSize => "Original Size",
+                TextKey::FillWindow => "Fill Window",
+                TextKey::ZoomIn => "Zoom In",
+                TextKey::ZoomOut => "Zoom Out",
+                TextKey::RotateClockwise => "Rotate Clockwise",
+                TextKey::RotateCounterClockwise => "Rotate Counter-Clockwise",
+                TextKey::ToggleFullscreen => "Toggle Fullscreen",
+                TextKey::OpenSettingsPanel => "Open Settings Panel...",
+                TextKey::ShortcutsHelp => "Shortcuts",
+                TextKey::AboutFastView => "About FastView",
+                TextKey::CheckForUpdates => "Check for Updates...",
+                TextKey::Version => "Version",
+                TextKey::GitHub => "GitHub",
+                TextKey::OK => "OK",
                 TextKey::Navigation => "Navigation",
                 TextKey::ZoomAndView => "Zoom & View",
                 TextKey::Rotation => "Rotation",
@@ -134,12 +204,8 @@ impl TextKey {
                 TextKey::Original => "Original",
                 TextKey::PreviousNext => "Previous/Next",
                 TextKey::ZoomInOut => "Zoom In/Out",
-                TextKey::FitToWindow => "Fit to Window",
-                TextKey::OriginalSize => "Original Size",
-                TextKey::FillWindow => "Fill Window",
                 TextKey::RotateLeft => "Rotate Left",
                 TextKey::RotateRight => "Rotate Right",
-                TextKey::ToggleFullscreen => "Toggle Fullscreen",
                 TextKey::DragMode => "Drag Mode (hold Space)",
                 TextKey::ExitFullscreen => "Exit Fullscreen",
                 TextKey::ShowHideShortcuts => "Show/Hide Shortcuts",
@@ -152,6 +218,17 @@ impl TextKey {
                 TextKey::ResetSettings => "Reset Settings",
                 TextKey::Chinese => "Chinese",
                 TextKey::English => "English",
+                // Deprecated - map to new keys
+                #[allow(deprecated)]
+                TextKey::File => "File",
+                #[allow(deprecated)]
+                TextKey::View => "View",
+                #[allow(deprecated)]
+                TextKey::Fullscreen => "Fullscreen",
+                #[allow(deprecated)]
+                TextKey::Shortcuts => "Shortcuts",
+                #[allow(deprecated)]
+                TextKey::Settings => "Settings",
             },
         }
     }
