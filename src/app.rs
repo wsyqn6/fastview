@@ -3,6 +3,13 @@ use image::GenericImageView;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[derive(Debug, Clone, PartialEq)]
+enum WindowType {
+    Shortcuts,
+    Settings,
+    About,
+}
+
 use crate::fonts::setup_fonts;
 use crate::types::{CachedImage, ImageCache, Language, Settings, TextKey, ZoomMode};
 
@@ -73,6 +80,9 @@ pub struct FastViewApp {
     pub show_settings: bool,
     pub file_size: u64, // 文件大小（字节）
     pub show_about: bool, // 控制"关于"对话框显示
+    
+    // 窗口打开顺序栈，用于ESC键后开先关逻辑
+    window_stack: Vec<WindowType>,
 }
 
 impl Default for FastViewApp {
@@ -98,6 +108,7 @@ impl Default for FastViewApp {
             show_settings: false,
             file_size: 0,
             show_about: false,
+            window_stack: Vec::new(),
         }
     }
 }
@@ -409,16 +420,24 @@ impl eframe::App for FastViewApp {
                         // 设置按钮（直接点击打开，无需下拉）
                         if ui.button(self.t(TextKey::MenuSettings)).clicked() {
                             self.show_settings = true;
+                            self.window_stack.push(WindowType::Settings);
                         }
 
                         // 帮助菜单
                         ui.menu_button(self.t(TextKey::MenuHelp), |ui| {
                             if ui.button(self.t(TextKey::ShortcutsHelp)).clicked() {
                                 self.show_shortcuts = !self.show_shortcuts;
+                                if self.show_shortcuts {
+                                    self.window_stack.push(WindowType::Shortcuts);
+                                } else {
+                                    // 如果关闭了快捷键窗口，从栈中移除
+                                    self.window_stack.retain(|w| w != &WindowType::Shortcuts);
+                                }
                                 ui.close();
                             }
                             if ui.button(self.t(TextKey::AboutFastView)).clicked() {
                                 self.show_about = true;
+                                self.window_stack.push(WindowType::About);
                                 ui.close();
                             }
                             ui.separator();
@@ -452,15 +471,6 @@ impl eframe::App for FastViewApp {
             let screen_rect = ctx.available_rect();
             let status_height = 28.0;
             
-            // 计算最小宽度（根据是否有图片）
-            let min_width = if self.current_path.is_some() {
-                400.0 // 有图片时的最小宽度
-            } else {
-                200.0 // 无图片时的最小宽度
-            };
-            
-            let max_width = (screen_rect.width() * 0.9).min(800.0); // 最大宽度限制
-            
             egui::Area::new(egui::Id::new("floating_status_bar"))
                 .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -12.0]) // 底部居中，距离底部12px
                 .show(ctx, |ui| {
@@ -482,116 +492,15 @@ impl eframe::App for FastViewApp {
                         })
                         .inner_margin(egui::Margin::symmetric(14, 6))
                         .show(ui, |ui| {
-                            ui.set_min_width(min_width);
+                            // 计算最大宽度限制（避免过宽）
+                            let max_width = (screen_rect.width() * 0.9).min(800.0);
                             ui.set_max_width(max_width);
                             ui.set_min_height(status_height - 12.0);
                             
+                            // 使用 horizontal 布局，内容自适应宽度
+                            // Area 已通过 anchor 居中，所以内容会自动居中显示
                             ui.horizontal(|ui| {
-                                // 文件名（加粗）
-                                if let Some(ref path) = self.current_path {
-                                    let filename = path
-                                        .file_name()
-                                        .map(|s| s.to_string_lossy())
-                                        .unwrap_or_default();
-
-                                    ui.label(egui::RichText::new(filename).strong().size(11.5));
-
-                                    // 自定义分隔符
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-
-                                    // 图片尺寸（等宽字体）
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}×{}",
-                                            self.image_size.x as u32, self.image_size.y as u32
-                                        ))
-                                        .family(egui::FontFamily::Monospace)
-                                        .size(10.5)
-                                        .color(visuals.weak_text_color()),
-                                    );
-
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                }
-
-                                // 图片索引
-                                if !self.current_images.is_empty() {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}/{}",
-                                            self.current_index + 1,
-                                            self.current_images.len()
-                                        ))
-                                        .size(10.5),
-                                    );
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                }
-
-                                // 缩放模式（使用徽章样式）
-                                let zoom_text = match self.zoom_mode {
-                                    ZoomMode::Fit => self.t(TextKey::Fit).to_string(),
-                                    ZoomMode::Fill => self.t(TextKey::Fill).to_string(),
-                                    ZoomMode::Original => self.t(TextKey::Original).to_string(),
-                                    ZoomMode::Custom => format!("{}%", (self.zoom * 100.0) as u32),
-                                };
-
-                                // 根据缩放模式使用不同的视觉样式
-                                if self.zoom_mode == ZoomMode::Custom {
-                                    // Custom 模式：使用醒目的橙色/金色徽章
-                                    let badge_bg = egui::Color32::from_rgb(255, 165, 0).gamma_multiply(0.2); // 橙色背景 20% 透明度
-                                    let badge_text = egui::Color32::from_rgb(255, 140, 0); // 深橙色文字
-                                    egui::Frame::NONE
-                                        .fill(badge_bg)
-                                        .corner_radius(4.0)
-                                        .inner_margin(egui::Margin::symmetric(6, 2))
-                                        .show(ui, |ui| {
-                                            ui.label(
-                                                egui::RichText::new(zoom_text)
-                                                    .size(10.0)
-                                                    .strong() // 加粗增强可读性
-                                                    .color(badge_text)
-                                            );
-                                        });
-                                } else {
-                                    // 标准模式：使用弱文本颜色
-                                    ui.label(
-                                        egui::RichText::new(zoom_text)
-                                            .size(10.5)
-                                            .color(visuals.weak_text_color())
-                                    );
-                                }
-
-                                // 旋转角度
-                                if self.rotation != 0.0 {
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        egui::RichText::new(format!("{}°", self.rotation as u32))
-                                            .size(10.5)
-                                            .color(visuals.weak_text_color()),
-                                    );
-                                }
-
-                                // 文件大小显示
-                                if self.file_size > 0 {
-                                    ui.add_space(8.0);
-                                    ui.separator();
-                                    ui.add_space(8.0);
-                                    
-                                    let size_text = self.format_file_size(self.file_size);
-                                    ui.label(
-                                        egui::RichText::new(size_text)
-                                            .size(10.5)
-                                            .family(egui::FontFamily::Monospace)
-                                            .color(visuals.weak_text_color())
-                                    );
-                                }
+                                render_status_content(ui, visuals, self);
                             });
                         });
                 });
@@ -830,25 +739,29 @@ impl eframe::App for FastViewApp {
                         }
                         egui::Key::H => {
                             self.show_shortcuts = !self.show_shortcuts;
+                            if self.show_shortcuts {
+                                self.window_stack.push(WindowType::Shortcuts);
+                            } else {
+                                // 如果关闭了快捷键窗口，从栈中移除
+                                self.window_stack.retain(|w| w != &WindowType::Shortcuts);
+                            }
                         }
                         egui::Key::Space => {
                             self.is_drag_mode = true;
                         }
                         egui::Key::Escape => {
-                            // 优先级1: 关闭弹出窗口
-                            if self.show_shortcuts {
-                                self.show_shortcuts = false;
-                            } else if self.show_settings {
-                                self.show_settings = false;
-                            } else if self.show_about {
-                                self.show_about = false;
+                            // 后开先关原则：关闭最后打开的窗口
+                            if let Some(window_type) = self.window_stack.pop() {
+                                match window_type {
+                                    WindowType::Shortcuts => self.show_shortcuts = false,
+                                    WindowType::Settings => self.show_settings = false,
+                                    WindowType::About => self.show_about = false,
+                                }
                             }
-                            // 优先级2: 退出全屏
+                            // 如果没有打开的窗口，则退出全屏或关闭程序
                             else if self.is_fullscreen {
                                 self.toggle_fullscreen(ctx);
-                            }
-                            // 优先级3: 关闭程序
-                            else {
+                            } else {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         }
@@ -1072,5 +985,119 @@ impl eframe::App for FastViewApp {
                     });
                 });
         }
+    }
+}
+
+/// 渲染状态栏内容的辅助函数
+fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastViewApp) {
+    // 文件名（加粗，带最大宽度限制）
+    if let Some(ref path) = app.current_path {
+        let filename = path
+            .file_name()
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default();
+
+        // 限制文件名最大宽度为 150px，超出部分显示省略号
+        ui.add_sized(
+            [150.0, 16.0],
+            egui::Label::new(egui::RichText::new(filename).strong().size(12.0))
+                .truncate()
+        );
+
+        // 自定义分隔符
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        // 图片尺寸（等宽字体）
+        ui.label(
+            egui::RichText::new(format!(
+                "{}×{}",
+                app.image_size.x as u32, app.image_size.y as u32
+            ))
+            .family(egui::FontFamily::Monospace)
+            .size(10.0)
+            .color(visuals.weak_text_color()),
+        );
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+    }
+
+    // 图片索引
+    if !app.current_images.is_empty() {
+        ui.label(
+            egui::RichText::new(format!(
+                "{}/{}",
+                app.current_index + 1,
+                app.current_images.len()
+            ))
+            .size(10.0),
+        );
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+    }
+
+    // 缩放模式（使用徽章样式）
+    let zoom_text = match app.zoom_mode {
+        ZoomMode::Fit => app.t(TextKey::Fit).to_string(),
+        ZoomMode::Fill => app.t(TextKey::Fill).to_string(),
+        ZoomMode::Original => app.t(TextKey::Original).to_string(),
+        ZoomMode::Custom => format!("{}%", (app.zoom * 100.0) as u32),
+    };
+
+    // 根据缩放模式使用不同的视觉样式
+    if app.zoom_mode == ZoomMode::Custom {
+        // Custom 模式：使用醒目的橙色/金色徽章
+        let badge_bg = egui::Color32::from_rgb(255, 165, 0).gamma_multiply(0.2); // 橙色背景 20% 透明度
+        let badge_text = egui::Color32::from_rgb(255, 140, 0); // 深橙色文字
+        egui::Frame::NONE
+            .fill(badge_bg)
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(&zoom_text)
+                        .size(10.0)
+                        .strong() // 加粗增强可读性
+                        .color(badge_text)
+                );
+            });
+    } else {
+        // 标准模式：使用弱文本颜色
+        ui.label(
+            egui::RichText::new(&zoom_text)
+                .size(10.0)
+                .color(visuals.weak_text_color())
+        );
+    }
+
+    // 旋转角度
+    if app.rotation != 0.0 {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(format!("{}°", app.rotation as u32))
+                .size(10.0)
+                .color(visuals.weak_text_color()),
+        );
+    }
+
+    // 文件大小显示
+    if app.file_size > 0 {
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+        
+        let size_text = app.format_file_size(app.file_size);
+        ui.label(
+            egui::RichText::new(size_text)
+                .size(10.0)
+                .family(egui::FontFamily::Monospace)
+                .color(visuals.weak_text_color())
+        );
     }
 }
