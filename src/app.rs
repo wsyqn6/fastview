@@ -336,11 +336,9 @@ impl eframe::App for FastViewApp {
                 .exact_height(24.0)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        let lang = self.settings.language;
-
                         // 文件菜单
-                        ui.menu_button(TextKey::File.text(lang), |ui| {
-                            if ui.button(TextKey::OpenFile.text(lang)).clicked() {
+                        ui.menu_button(self.t(TextKey::MenuFile), |ui| {
+                            if ui.button(self.t(TextKey::OpenFile)).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter(
                                         "Images",
@@ -356,21 +354,81 @@ impl eframe::App for FastViewApp {
                                 ui.close();
                             }
                             ui.separator();
-                            if ui.button(TextKey::Exit.text(lang)).clicked() {
+                            if ui.button(self.t(TextKey::Exit)).clicked() {
                                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                                 ui.close();
                             }
                         });
 
-                        // 视图菜单
-                        ui.menu_button(TextKey::View.text(lang), |ui| {
-                            if ui.button(TextKey::Fullscreen.text(lang)).clicked() {
-                                self.toggle_fullscreen(ctx);
+                        // 查看菜单
+                        ui.menu_button(self.t(TextKey::MenuView), |ui| {
+                            // 缩放模式
+                            if ui.button(self.t(TextKey::FitToWindow)).clicked() {
+                                self.zoom_mode = ZoomMode::Fit;
+                                self.image_offset = egui::Vec2::ZERO;
+                                ui.close();
+                            }
+                            if ui.button(self.t(TextKey::OriginalSize)).clicked() {
+                                self.zoom_mode = ZoomMode::Original;
+                                self.image_offset = egui::Vec2::ZERO;
+                                ui.close();
+                            }
+                            if ui.button(self.t(TextKey::FillWindow)).clicked() {
+                                self.zoom_mode = ZoomMode::Fill;
+                                self.image_offset = egui::Vec2::ZERO;
                                 ui.close();
                             }
                             ui.separator();
-                            ui.checkbox(&mut self.show_shortcuts, TextKey::Shortcuts.text(lang));
-                            ui.checkbox(&mut self.show_settings, TextKey::Settings.text(lang));
+                            // 缩放操作
+                            if ui.button(self.t(TextKey::ZoomIn)).clicked() {
+                                self.zoom_in(self.current_scale);
+                                ui.close();
+                            }
+                            if ui.button(self.t(TextKey::ZoomOut)).clicked() {
+                                self.zoom_out(self.current_scale);
+                                ui.close();
+                            }
+                            ui.separator();
+                            // 旋转
+                            if ui.button(self.t(TextKey::RotateClockwise)).clicked() {
+                                self.rotate_right();
+                                ui.close();
+                            }
+                            if ui.button(self.t(TextKey::RotateCounterClockwise)).clicked() {
+                                self.rotate_left();
+                                ui.close();
+                            }
+                            ui.separator();
+                            // 全屏
+                            if ui.button(self.t(TextKey::ToggleFullscreen)).clicked() {
+                                self.toggle_fullscreen(ctx);
+                                ui.close();
+                            }
+                        });
+
+                        // 设置菜单
+                        ui.menu_button(self.t(TextKey::MenuSettings), |ui| {
+                            if ui.button(self.t(TextKey::OpenSettingsPanel)).clicked() {
+                                self.show_settings = true;
+                                ui.close();
+                            }
+                        });
+
+                        // 帮助菜单
+                        ui.menu_button(self.t(TextKey::MenuHelp), |ui| {
+                            if ui.button(self.t(TextKey::ShortcutsHelp)).clicked() {
+                                self.show_shortcuts = !self.show_shortcuts;
+                                ui.close();
+                            }
+                            if ui.button(self.t(TextKey::AboutFastView)).clicked() {
+                                self.show_about = true;
+                                ui.close();
+                            }
+                            ui.separator();
+                            // 检查更新（禁用状态，预留接口）
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = ui.button(self.t(TextKey::CheckForUpdates));
+                            });
                         });
                     });
                 });
@@ -808,7 +866,7 @@ impl eframe::App for FastViewApp {
         if self.show_settings {
             // Get all text outside to avoid borrowing issues
             let lang = self.settings.language;
-            let settings_text = TextKey::Settings.text(lang);
+            let settings_text = self.t(TextKey::MenuSettings);
             let general_text = TextKey::General.text(lang);
             let language_text = TextKey::Language.text(lang);
             let chinese_text = TextKey::Chinese.text(lang);
@@ -878,7 +936,7 @@ impl eframe::App for FastViewApp {
         // Shortcuts window - 卡片式设计
         if self.show_shortcuts {
             let lang = self.settings.language;
-            let title = TextKey::Shortcuts.text(lang);
+            let title = self.t(TextKey::ShortcutsHelp);
             
             // 提前获取所有翻译文本，避免在闭包中借用 self
             let navigation_text = TextKey::Navigation.text(lang);
