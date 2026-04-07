@@ -1038,5 +1038,38 @@ impl eframe::App for FastViewApp {
                     ui.add_space(8.0);
                 });
         }
+
+        // About dialog
+        if self.show_about {
+            let version = self.get_version();
+            let title = self.t(TextKey::AboutFastView);
+            let version_label = self.t(TextKey::Version);
+            let github_label = self.t(TextKey::GitHub);
+            let ok_text = self.t(TextKey::OK);
+
+            egui::Window::new(title)
+                .open(&mut self.show_about)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .collapsible(false)
+                .resizable(false)
+                .fixed_size([320.0, 200.0])
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(20.0);
+                        ui.heading("FastView");
+                        ui.label(format!("{} {}", version_label, version));
+                        ui.add_space(10.0);
+                        ui.label("A lightweight image viewer");
+                        ui.add_space(10.0);
+                        ui.hyperlink_to(
+                            format!("{}: https://github.com/wsyqn6/fastview", github_label),
+                            "https://github.com/wsyqn6/fastview",
+                        );
+                        ui.add_space(20.0);
+                        // 点击确定按钮关闭窗口（通过 open 参数自动处理）
+                        let _ = ui.button(ok_text);
+                    });
+                });
+        }
     }
 }
