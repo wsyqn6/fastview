@@ -520,9 +520,7 @@ impl FastViewApp {
             };
             
             if !already_cached {
-                // 异步预加载
-                let cache_clone = self.image_cache.clone();
-                let ctx_clone = ctx.clone();
+                // 异步预加载（只解码，不创建纹理）
                 
                 std::thread::spawn(move || {
                     if let Ok(img) = image::open(&next_path) {
@@ -531,21 +529,18 @@ impl FastViewApp {
                         dynamic_img.apply_orientation(orientation);
                         
                         let (width, height) = dynamic_img.dimensions();
-                        let _image_size = egui::vec2(width as f32, height as f32);
+                        let rgba_data = dynamic_img.to_rgba8().into_raw();
                         
-                        let _color_image = egui::ColorImage::from_rgba_unmultiplied(
-                            [width as usize, height as usize],
-                            dynamic_img.to_rgba8().as_raw(),
-                        );
+                        // 生成缩略图
+                        let thumb = dynamic_img.thumbnail(200, 200);
+                        let thumb_rgba = thumb.to_rgba8().into_raw();
                         
-                        // 注意：纹理创建必须在主线程，这里只解码
-                        // 实际纹理创建会在下次 UI 刷新时从缓存读取
-                        if let Ok(_cache) = cache_clone.lock() {
-                            // 这里只是占位，实际需要在主线程创建纹理
-                            // 简化处理：预加载只解码，纹理在需要时创建
-                        }
+                        // 注意：由于纹理创建需要 egui::Context，我们不能在后台线程创建
+                        // 所以这里只预解码数据，当用户切换到此图片时会从磁盘快速加载
+                        // 这是一个折中方案，避免了复杂的跨线程纹理传递
                         
-                        ctx_clone.request_repaint();
+                        // 记录预加载完成（可选：可以添加一个标志位）
+                        eprintln!("[PRELOAD] Decoded: {:?}", next_path.file_name());
                     }
                 });
             }
@@ -1377,7 +1372,13 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
             ui.separator();
             ui.add_space(8.0);
             
-            let cache_text = format!("缓存: {}", cache_count);
+            // 计算总内存占用
+            let total_memory: usize = cache.iter()
+                .map(|(_, entry)| entry.estimated_memory_bytes())
+                .sum();
+            
+            let memory_mb = total_memory as f64 / (1024.0 * 1024.0);
+            let cache_text = format!("缓存: {} ({:.1}MB)", cache_count, memory_mb);
             ui.label(
                 egui::RichText::new(cache_text)
                     .size(10.0)
