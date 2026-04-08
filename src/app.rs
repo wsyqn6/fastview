@@ -21,6 +21,7 @@ struct DirectoryCache {
 }
 
 /// 后台解码后的图片数据
+#[allow(dead_code)]  // 预留字段,用于未来扩展
 struct DecodedImageData {
     path: PathBuf,
     rgba_data: Vec<u8>,
@@ -518,11 +519,13 @@ impl FastViewApp {
             if let Some((oldest_path, _)) = cache.peek_lru() {
                 let oldest_path = oldest_path.clone();
                 if let Some(removed) = cache.pop(&oldest_path) {
-                    let removed_bytes = removed.estimated_memory_bytes();
                     #[cfg(debug_assertions)]
-                    eprintln!("[CACHE] Evicted: {:?} (freed {:.1}MB)", 
-                        oldest_path.file_name(), 
-                        removed_bytes as f64 / (1024.0 * 1024.0));
+                    {
+                        let removed_bytes = removed.estimated_memory_bytes();
+                        eprintln!("[CACHE] Evicted: {:?} (freed {:.1}MB)", 
+                            oldest_path.file_name(), 
+                            removed_bytes as f64 / (1024.0 * 1024.0));
+                    }
                 }
             }
         }

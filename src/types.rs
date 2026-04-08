@@ -212,6 +212,7 @@ pub enum ZoomMode {
 
 /// 缓存条目类型(支持双层缓存)
 #[derive(Clone)]
+#[allow(dead_code)]  // 预留变体和方法,用于未来扩展
 pub enum CacheEntry {
     /// 完整图片缓存(主纹理 + 缩略图)
     FullImage(Arc<CachedImage>),
@@ -223,6 +224,7 @@ pub enum CacheEntry {
     },
 }
 
+#[allow(dead_code)]  // 预留方法,用于未来扩展
 impl CacheEntry {
     /// 获取主纹理(如果有)
     pub fn main_texture(&self) -> Option<&egui::TextureHandle> {
