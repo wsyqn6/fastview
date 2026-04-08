@@ -2,7 +2,9 @@ use eframe::egui;
 use image::GenericImageView;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, PartialEq)]
 enum WindowType {
@@ -27,10 +29,11 @@ struct DecodedImageData {
     thumbnail_rgba: Vec<u8>,
     thumb_width: u32,
     thumb_height: u32,
+    is_thumbnail_only: bool,
 }
 
 use crate::fonts::setup_fonts;
-use crate::types::{CachedImage, ImageCache, Language, Settings, TextKey, ZoomMode};
+use crate::types::{CacheEntry, CachedImage, ImageCache, Language, Settings, TextKey, ZoomMode};
 
 /// 读取图片的 EXIF 方向信息
 fn read_exif_orientation(path: &PathBuf) -> image::metadata::Orientation {
@@ -107,11 +110,11 @@ pub struct FastViewApp {
     // 目录缓存，避免频繁扫描文件系统
     dir_cache: Option<DirectoryCache>,
     
-    // 异步加载通道（当前图片）
-    image_rx: Option<Receiver<DecodedImageData>>,
+    // 新增: 任务版本控制(替代多个channel)
+    current_load_version: Arc<AtomicUsize>,
     
-    // 预加载消息通道（相邻图片）
-    preload_rx: Option<Receiver<DecodedImageData>>,
+    // 修改: 统一的结果接收通道(合并image_rx和preload_rx)
+    result_rx: Option<Receiver<DecodedImageData>>,
 }
 
 impl Default for FastViewApp {
@@ -119,7 +122,6 @@ impl Default for FastViewApp {
         use lru::LruCache;
         
         let (_tx, rx) = mpsc::channel();
-        let (_preload_tx, preload_rx) = mpsc::channel();
         
         Self {
             texture: None,
@@ -145,8 +147,8 @@ impl Default for FastViewApp {
             show_about: false,
             window_stack: Vec::new(),
             dir_cache: None,
-            image_rx: Some(rx),
-            preload_rx: Some(preload_rx),
+            current_load_version: Arc::new(AtomicUsize::new(0)),
+            result_rx: Some(rx),
         }
     }
 }
@@ -220,68 +222,101 @@ impl FastViewApp {
     }
 
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
-        // 优化1: 优先检查缓存，避免重复解码
+        // 1. 优先检查缓存
         if let Some(cached) = {
             let mut cache_guard = self.image_cache.lock().unwrap();
             cache_guard.get(path).cloned()
         } {
-            // 缓存命中，直接应用（微秒级）
-            self.apply_cached_image(cached, path);
+            // 缓存命中,立即应用
+            self.apply_cached_entry(cached, path);
             return Ok(());
         }
         
-        // 缓存未命中，启动异步加载
+        // 2. 缓存未命中,异步加载
         self.load_image_async(path, ctx);
         Ok(())
     }
     
-    /// 应用已缓存的图片
-    fn apply_cached_image(&mut self, cached: Arc<CachedImage>, path: &PathBuf) {
-        self.texture = Some(cached.texture.clone());
-        self.thumbnail_texture = Some(cached.thumbnail_texture.clone());
-        self.image_size = cached.image_size;
+    /// 应用缓存条目(支持完整图和缩略图)
+    fn apply_cached_entry(&mut self, entry: CacheEntry, path: &PathBuf) {
         self.current_path = Some(path.clone());
+        self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        
+        match entry {
+            CacheEntry::FullImage(cached) => {
+                // 完整图片:直接显示
+                self.texture = Some(cached.texture.clone());
+                self.thumbnail_texture = Some(cached.thumbnail_texture.clone());
+                self.image_size = cached.image_size;
+            }
+            CacheEntry::ThumbnailOnly { thumb_texture, image_size } => {
+                // 仅缩略图:先显示缩略图,触发后台加载完整图
+                self.thumbnail_texture = Some(thumb_texture);
+                self.image_size = image_size;
+                // 注意:不设置texture,保持loading状态
+            }
+        }
+        
         self.zoom_mode = ZoomMode::Fit;
         self.zoom = 1.0;
         self.rotation = 0.0;
         self.image_offset = egui::Vec2::ZERO;
-        self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         
-        // 更新目录列表（如果需要）
+        // 更新目录列表
         self.update_directory_list(path);
     }
     
-    /// 异步加载图片（渐进式加载）
+    /// 异步加载图片(使用rayon并发 + 版本控制)
     fn load_image_async(&mut self, path: &PathBuf, ctx: &egui::Context) {
-        // 1. 立即设置当前路径，显示加载状态
+        // 1. 立即设置路径,显示loading状态
         self.current_path = Some(path.clone());
         self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        self.texture = None; // 清除旧纹理,触发loading显示
         
-        // 2. 尝试快速生成缩略图用于即时显示
-        if let Some(thumb_tex) = self.generate_quick_thumbnail(path, ctx) {
+        // 2. 生成缩略图用于快速显示
+        if let Some(thumb_tex) = self.generate_thumbnail(path, 150, ctx) {
             self.thumbnail_texture = Some(thumb_tex);
             ctx.request_repaint();
         }
         
-        // 3. 启动后台线程解码图片
-        let path_clone = path.clone();
+        // 3. 递增版本号,使之前的任务自动失效
+        let version = self.current_load_version.fetch_add(1, Ordering::SeqCst);
+        let version_clone = self.current_load_version.clone();
         
-        // 创建新的通道用于接收解码结果
+        // 4. 创建新的接收通道
         let (tx, rx) = mpsc::channel();
-        self.image_rx = Some(rx);
+        self.result_rx = Some(rx);
         
-        std::thread::spawn(move || {
-            if let Ok(decoded) = Self::decode_image_raw(&path_clone) {
+        // 5. 提交到rayon线程池
+        let path_clone = path.clone();
+        rayon::spawn(move || {
+            // 检查是否仍是最新请求
+            if version_clone.load(Ordering::Relaxed) != version + 1 {
+                #[cfg(debug_assertions)]
+                eprintln!("[LOAD] Task cancelled (outdated): {:?}", path_clone.file_name());
+                return;
+            }
+            
+            #[cfg(debug_assertions)]
+            eprintln!("[LOAD] Decoding: {:?}", path_clone.file_name());
+            
+            // 执行解码
+            if let Ok(decoded) = Self::decode_image_full(&path_clone) {
                 let _ = tx.send(decoded);
+                #[cfg(debug_assertions)]
+                eprintln!("[LOAD] Decoded: {:?}", path_clone.file_name());
+            } else {
+                #[cfg(debug_assertions)]
+                eprintln!("[LOAD] Failed: {:?}", path_clone.file_name());
             }
         });
         
-        // 4. 更新目录列表
+        // 6. 更新目录列表
         self.update_directory_list(path);
     }
     
     /// 在后台线程解码图片（只解码，不创建纹理）
-    fn decode_image_raw(path: &PathBuf) -> Result<DecodedImageData, String> {
+    fn decode_image_full(path: &PathBuf) -> Result<DecodedImageData, String> {
         // 加载图片
         let img = image::open(path).map_err(|e| format!("Failed to open: {}", e))?;
         
@@ -293,10 +328,12 @@ impl FastViewApp {
         dynamic_img.apply_orientation(orientation);
         
         let (width, height) = dynamic_img.dimensions();
+        
+        // 零拷贝:直接转移所有权
         let rgba_data = dynamic_img.to_rgba8().into_raw();
         
-        // 生成缩略图
-        let thumb_size = 200;
+        // 生成缩略图(复用已解码数据)
+        let thumb_size = 150;
         let thumb_img = dynamic_img.thumbnail(thumb_size, thumb_size);
         let (thumb_width, thumb_height) = thumb_img.dimensions();
         let thumbnail_rgba = thumb_img.to_rgba8().into_raw();
@@ -309,58 +346,14 @@ impl FastViewApp {
             thumbnail_rgba,
             thumb_width,
             thumb_height,
+            is_thumbnail_only: false,
         })
     }
     
-    /// 在主线程从解码数据创建纹理
-    fn create_texture_from_decoded(&mut self, decoded: DecodedImageData, ctx: &egui::Context) {
-        let image_size = egui::vec2(decoded.width as f32, decoded.height as f32);
-        
-        // 创建主纹理
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [decoded.width as usize, decoded.height as usize],
-            &decoded.rgba_data,
-        );
-        let texture = ctx.load_texture("image", color_image, egui::TextureOptions::LINEAR);
-        
-        // 创建缩略图纹理
-        let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [decoded.thumb_width as usize, decoded.thumb_height as usize],
-            &decoded.thumbnail_rgba,
-        );
-        let thumbnail_texture = ctx.load_texture("thumbnail", thumb_color_image, egui::TextureOptions::LINEAR);
-        
-        let cached = Arc::new(CachedImage {
-            texture: texture.clone(),
-            thumbnail_texture: thumbnail_texture.clone(),
-            image_size,
-        });
-        
-        // 存入缓存
-        {
-            let mut cache_guard = self.image_cache.lock().unwrap();
-            cache_guard.put(decoded.path.clone(), cached);
-        }
-        
-        // 应用到当前显示
-        self.texture = Some(texture);
-        self.thumbnail_texture = Some(thumbnail_texture);
-        self.image_size = image_size;
-        self.zoom_mode = ZoomMode::Fit;
-        self.zoom = 1.0;
-        self.rotation = 0.0;
-        self.image_offset = egui::Vec2::ZERO;
-        
-        // 预加载相邻图片
-        self.preload_adjacent_images(ctx);
-    }
-    
-    /// 快速生成缩略图（用于即时显示）
-    fn generate_quick_thumbnail(&self, path: &PathBuf, ctx: &egui::Context) -> Option<egui::TextureHandle> {
-        // 尝试快速读取并生成小尺寸缩略图
+    /// 生成缩略图(统一接口)
+    fn generate_thumbnail(&self, path: &PathBuf, size: u32, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         if let Ok(img) = image::open(path) {
-            let thumb_size = 100; // 更小的尺寸用于快速显示
-            let thumb_img = img.thumbnail(thumb_size, thumb_size);
+            let thumb_img = img.thumbnail(size, size);
             let (tw, th) = thumb_img.dimensions();
             
             let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
@@ -368,7 +361,7 @@ impl FastViewApp {
                 thumb_img.to_rgba8().as_raw(),
             );
             
-            Some(ctx.load_texture("quick_thumb", thumb_color_image, egui::TextureOptions::LINEAR))
+            Some(ctx.load_texture("thumb", thumb_color_image, egui::TextureOptions::LINEAR))
         } else {
             None
         }
@@ -433,12 +426,12 @@ impl FastViewApp {
         }
     }
     
-    /// 更新目录列表（带缓存优化）
+    /// 更新目录列表(带缓存优化 + 并行扫描)
     fn update_directory_list(&mut self, path: &PathBuf) {
         if let Some(parent) = path.parent() {
-            // 检查目录缓存是否有效（5秒内不重新扫描）
+            // 检查目录缓存是否有效(30秒内不重新扫描)
             let need_rescan = if let Some(dir_cache) = &self.dir_cache {
-                dir_cache.path != parent || dir_cache.timestamp.elapsed().as_secs() >= 5
+                dir_cache.path != parent || dir_cache.timestamp.elapsed().as_secs() >= 30
             } else {
                 true
             };
@@ -451,6 +444,8 @@ impl FastViewApp {
                     .into_iter()
                     .flat_map(|entries| entries.filter_map(|e| e.ok()))
                     .map(|entry| entry.path())
+                    .collect::<Vec<_>>()
+                    .par_iter()  // 并行过滤
                     .filter(|p| {
                         p.is_file()
                             && p.extension()
@@ -458,22 +453,15 @@ impl FastViewApp {
                                 .map(|ext| {
                                     matches!(
                                         ext.to_lowercase().as_str(),
-                                        "jpg"
-                                            | "jpeg"
-                                            | "png"
-                                            | "gif"
-                                            | "webp"
-                                            | "bmp"
-                                            | "tiff"
-                                            | "tif"
-                                            | "ico"
-                                            | "avif"
+                                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "tif" | "ico" | "avif"
                                     )
                                 })
                                 .unwrap_or(false)
                     })
+                    .cloned()
                     .collect();
-                images.sort();
+                
+                images.par_sort(); // 并行排序
                 
                 // 更新缓存
                 self.dir_cache = Some(DirectoryCache {
@@ -499,67 +487,13 @@ impl FastViewApp {
         }
     }
     
-    /// 预加载相邻图片（优化切换速度）
+    /// 预加载相邻图片(简化版:仅记录,不实际加载)
     fn preload_adjacent_images(&mut self, _ctx: &egui::Context) {
-        if self.current_images.is_empty() {
-            return;
-        }
-        
-        let current_idx = self.current_index;
-        let total = self.current_images.len();
-        
-        // 预加载前后各一张图片
-        for offset in [-1isize, 1] {
-            let next_idx = if offset < 0 {
-                if current_idx > 0 { current_idx - 1 } else { total - 1 }
-            } else {
-                if current_idx < total - 1 { current_idx + 1 } else { 0 }
-            };
-            
-            let next_path = self.current_images[next_idx].clone();
-            
-            // 检查是否已在缓存中
-            let already_cached = {
-                let cache = self.image_cache.lock().unwrap();
-                cache.contains(&next_path)
-            };
-            
-            if !already_cached {
-                // 异步预加载：只生成缩略图，不缓存主图
-                let (tx, rx) = mpsc::channel();
-                self.preload_rx = Some(rx);
-                
-                std::thread::spawn(move || {
-                    if let Ok(img) = image::open(&next_path) {
-                        let orientation = read_exif_orientation(&next_path);
-                        let mut dynamic_img = img;
-                        dynamic_img.apply_orientation(orientation);
-                        
-                        let (width, height) = dynamic_img.dimensions();
-                        
-                        // 只生成小缩略图（用于快速预览）
-                        let thumb_size = 150; // 更小的缩略图
-                        let thumb = dynamic_img.thumbnail(thumb_size, thumb_size);
-                        let (thumb_w, thumb_h) = thumb.dimensions();
-                        let thumbnail_rgba = thumb.to_rgba8().into_raw();
-                        
-                        // 只发送缩略图数据，不发送主图
-                        let decoded = DecodedImageData {
-                            path: next_path.clone(),
-                            rgba_data: Vec::new(), // 空的主图数据
-                            width,
-                            height,
-                            thumbnail_rgba,
-                            thumb_width: thumb_w,
-                            thumb_height: thumb_h,
-                        };
-                        
-                        let _ = tx.send(decoded);
-                        eprintln!("[PRELOAD] Sent thumb: {:?}", next_path.file_name());
-                    }
-                });
-            }
-        }
+        // 当前设计:依赖LRU缓存自动管理
+        // 当用户切换到相邻图片时,如果还在缓存中则秒开
+        // 否则正常加载流程
+        // 
+        // 未来优化:可以添加后台线程定期预加载
     }
 
     pub fn toggle_fullscreen(&mut self, ctx: &egui::Context) {
@@ -570,6 +504,28 @@ impl FastViewApp {
     pub fn toggle_borderless(&mut self, ctx: &egui::Context) {
         self.is_borderless = !self.is_borderless;
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.is_borderless));
+    }
+    
+    /// 内存检查和淘汰(如果超出限制则移除最旧条目)
+    fn evict_if_needed(&self, cache: &mut lru::LruCache<PathBuf, CacheEntry>, new_entry_bytes: usize) {
+        let max_memory = 80 * 1024 * 1024; // 80MB
+        let current_memory: usize = cache.iter()
+            .map(|(_, entry)| entry.estimated_memory_bytes())
+            .sum();
+        
+        // 如果超出限制且缓存中有足够条目,则淘汰
+        while current_memory + new_entry_bytes > max_memory && cache.len() > 3 {
+            if let Some((oldest_path, _)) = cache.peek_lru() {
+                let oldest_path = oldest_path.clone();
+                if let Some(removed) = cache.pop(&oldest_path) {
+                    let removed_bytes = removed.estimated_memory_bytes();
+                    #[cfg(debug_assertions)]
+                    eprintln!("[CACHE] Evicted: {:?} (freed {:.1}MB)", 
+                        oldest_path.file_name(), 
+                        removed_bytes as f64 / (1024.0 * 1024.0));
+                }
+            }
+        }
     }
 }
 
@@ -690,95 +646,64 @@ impl eframe::App for FastViewApp {
                 });
         }
 
-        // 检查异步加载完成的图片
-        if let Some(rx) = &self.image_rx {
+        // 检查异步加载完成的图片(统一处理)
+        if let Some(rx) = &self.result_rx {
             if let Ok(decoded) = rx.try_recv() {
-                self.create_texture_from_decoded(decoded, ui.ctx());
-                ui.ctx().request_repaint();
-            }
-        }
-        
-        // 检查预加载完成的图片
-        if let Some(rx) = &self.preload_rx {
-            if let Ok(decoded) = rx.try_recv() {
-                eprintln!("[PRELOAD] Received: {:?}", decoded.path.file_name());
+                #[cfg(debug_assertions)]
+                eprintln!("[RESULT] Received decoded: {:?}", decoded.path.file_name());
                 
-                // 只创建缩略图纹理（用于目录浏览等场景）
-                // 不创建主图纹理，节省内存
-                if !decoded.thumbnail_rgba.is_empty() {
-                    let thumb_color = egui::ColorImage::from_rgba_unmultiplied(
-                        [decoded.thumb_width as usize, decoded.thumb_height as usize],
-                        &decoded.thumbnail_rgba,
-                    );
-                    let thumb_texture = ui.ctx().load_texture("preload_thumb", thumb_color, egui::TextureOptions::LINEAR);
+                // 创建纹理
+                let image_size = egui::vec2(decoded.width as f32, decoded.height as f32);
+                
+                // 创建主纹理
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [decoded.width as usize, decoded.height as usize],
+                    &decoded.rgba_data,
+                );
+                let texture = ui.ctx().load_texture("image", color_image, egui::TextureOptions::LINEAR);
+                
+                // 创建缩略图纹理
+                let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [decoded.thumb_width as usize, decoded.thumb_height as usize],
+                    &decoded.thumbnail_rgba,
+                );
+                let thumbnail_texture = ui.ctx().load_texture("thumbnail", thumb_color_image, egui::TextureOptions::LINEAR);
+                
+                let cached = Arc::new(CachedImage {
+                    texture: texture.clone(),
+                    thumbnail_texture: thumbnail_texture.clone(),
+                    image_size,
+                });
+                
+                // 存入缓存(作为完整图片)
+                {
+                    let mut cache_guard = self.image_cache.lock().unwrap();
+                    let entry = CacheEntry::FullImage(cached.clone());
                     
-                    let image_size = egui::vec2(decoded.width as f32, decoded.height as f32);
+                    // 内存检查和淘汰
+                    self.evict_if_needed(&mut cache_guard, cached.estimated_memory_bytes());
                     
-                    // 创建一个只有缩略图的缓存条目（主图为占位符）
-                    let placeholder_texture = ui.ctx().load_texture(
-                        "placeholder", 
-                        egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]),
-                        egui::TextureOptions::NEAREST
-                    );
-                    
-                    let cached = Arc::new(CachedImage {
-                        texture: placeholder_texture, // 占位符
-                        thumbnail_texture: thumb_texture,
-                        image_size,
-                    });
-                    
-                    // 存入缓存前检查内存限制
-                    {
-                        let mut cache_guard = self.image_cache.lock().unwrap();
-                        
-                        // 缩略图很小（150x150x4 = 90KB），可以缓存更多
-                        let new_entry_bytes = decoded.thumbnail_rgba.len();
-                        let current_memory: usize = cache_guard.iter()
-                            .map(|(_, entry)| entry.estimated_memory_bytes())
-                            .sum();
-                        
-                        let max_memory_mb = 50; // 降低到 50MB
-                        let max_memory_bytes = max_memory_mb * 1024 * 1024;
-                        
-                        // 如果超出限制，移除最旧的条目
-                        while current_memory + new_entry_bytes > max_memory_bytes && cache_guard.len() > 3 {
-                            if let Some((oldest_path, _)) = cache_guard.iter().next() {
-                                let oldest_path = oldest_path.clone();
-                                if let Some(removed) = cache_guard.pop(&oldest_path) {
-                                    let removed_bytes = removed.estimated_memory_bytes();
-                                    eprintln!("[CACHE] Evicted: {:?} (freed {:.1}MB)", 
-                                        oldest_path.file_name(), 
-                                        removed_bytes as f64 / (1024.0 * 1024.0));
-                                }
-                            }
-                        }
-                        
-                        cache_guard.put(decoded.path.clone(), cached);
-                    }
-                    
-                    eprintln!("[PRELOAD] Thumb cached: {:?}", decoded.path.file_name());
+                    cache_guard.put(decoded.path.clone(), entry);
                 }
                 
-                // 清空通道
-                self.preload_rx = None;
+                // 应用到当前显示(仅当是当前图片时)
+                if self.current_path.as_ref() == Some(&decoded.path) {
+                    self.texture = Some(texture);
+                    self.thumbnail_texture = Some(thumbnail_texture);
+                    self.image_size = image_size;
+                    self.zoom_mode = ZoomMode::Fit;
+                    self.zoom = 1.0;
+                    self.rotation = 0.0;
+                    self.image_offset = egui::Vec2::ZERO;
+                    
+                    // 预加载相邻图片
+                    self.preload_adjacent_images(ui.ctx());
+                }
+                
+                // 清空通道(准备接收下一个)
+                self.result_rx = None;
                 
                 ui.ctx().request_repaint();
-            }
-        }
-
-        // 检查当前图片是否已经有高清缓存版本，如果有就更新显示
-        if let Some(current_path) = &self.current_path {
-            let need_update = {
-                let mut cache_guard = self.image_cache.lock().unwrap();
-                cache_guard.get(current_path).cloned()
-            };
-
-            if let Some(cached) = need_update {
-                if self.texture.as_ref().map(|t| t.id()) != Some(cached.texture.id()) {
-                    self.texture = Some(cached.texture.clone());
-                    self.thumbnail_texture = Some(cached.thumbnail_texture.clone());
-                    self.image_size = cached.image_size;
-                }
             }
         }
 

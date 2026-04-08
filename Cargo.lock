@@ -1360,6 +1360,7 @@ dependencies = [
  "log",
  "lru",
  "once_cell",
+ "rayon",
  "rfd",
  "serde",
  "serde_json",
