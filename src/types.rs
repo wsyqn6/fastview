@@ -1,4 +1,5 @@
 use eframe::egui;
+use lru::LruCache;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -216,4 +217,14 @@ pub struct CachedImage {
     pub image_size: egui::Vec2,
 }
 
-pub type ImageCache = Arc<std::sync::Mutex<std::collections::HashMap<PathBuf, Arc<CachedImage>>>>;
+impl CachedImage {
+    /// 估算内存占用（字节）
+    pub fn estimated_memory_bytes(&self) -> usize {
+        // 主纹理 + 缩略图文理 (RGBA, 4 bytes per pixel)
+        let main_texture_bytes = (self.image_size.x * self.image_size.y * 4.0) as usize;
+        let thumb_texture_bytes = 200 * 200 * 4; // 缩略图固定大小
+        main_texture_bytes + thumb_texture_bytes
+    }
+}
+
+pub type ImageCache = Arc<std::sync::Mutex<LruCache<PathBuf, Arc<CachedImage>>>>;
