@@ -495,7 +495,7 @@ impl FastViewApp {
     }
     
     /// 预加载相邻图片（优化切换速度）
-    fn preload_adjacent_images(&mut self, ctx: &egui::Context) {
+    fn preload_adjacent_images(&mut self, _ctx: &egui::Context) {
         if self.current_images.is_empty() {
             return;
         }
@@ -520,7 +520,7 @@ impl FastViewApp {
             };
             
             if !already_cached {
-                // 异步预加载（只解码，不创建纹理）
+                // 异步预加载（只解码，触发操作系统文件缓存）
                 
                 std::thread::spawn(move || {
                     if let Ok(img) = image::open(&next_path) {
@@ -528,12 +528,12 @@ impl FastViewApp {
                         let mut dynamic_img = img;
                         dynamic_img.apply_orientation(orientation);
                         
-                        let (width, height) = dynamic_img.dimensions();
-                        let rgba_data = dynamic_img.to_rgba8().into_raw();
+                        let (_width, _height) = dynamic_img.dimensions();
+                        let _rgba_data = dynamic_img.to_rgba8().into_raw();
                         
                         // 生成缩略图
                         let thumb = dynamic_img.thumbnail(200, 200);
-                        let thumb_rgba = thumb.to_rgba8().into_raw();
+                        let _thumb_rgba = thumb.to_rgba8().into_raw();
                         
                         // 注意：由于纹理创建需要 egui::Context，我们不能在后台线程创建
                         // 所以这里只预解码数据，当用户切换到此图片时会从磁盘快速加载
