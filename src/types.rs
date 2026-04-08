@@ -43,11 +43,11 @@ pub enum TextKey {
     MenuView,
     MenuSettings,
     MenuHelp,
-    
+
     // File menu
     OpenFile,
     Exit,
-    
+
     // View menu
     FitToWindow,
     OriginalSize,
@@ -57,23 +57,24 @@ pub enum TextKey {
     RotateClockwise,
     RotateCounterClockwise,
     ToggleFullscreen,
-    
+    ToggleBorderless,
+
     // Help menu
     ShortcutsHelp,
     AboutFastView,
     CheckForUpdates,
-    
+
     // About dialog
     Version,
     GitHub,
     OK,
     AppDescription,
-    
+
     // Status
     Fit,
     Fill,
     Original,
-    
+
     // Shortcuts window
     Navigation,
     ZoomAndView,
@@ -87,7 +88,7 @@ pub enum TextKey {
     ExitFullscreen,
     ShowHideShortcuts,
     ClickToOpen,
-    
+
     // Settings
     General,
     Language,
@@ -117,6 +118,7 @@ impl TextKey {
                 TextKey::RotateClockwise => "顺时针旋转",
                 TextKey::RotateCounterClockwise => "逆时针旋转",
                 TextKey::ToggleFullscreen => "切换全屏",
+                TextKey::ToggleBorderless => "无边框模式",
                 TextKey::ShortcutsHelp => "快捷键",
                 TextKey::AboutFastView => "关于 FastView",
                 TextKey::CheckForUpdates => "检查更新...",
@@ -163,6 +165,7 @@ impl TextKey {
                 TextKey::RotateClockwise => "Rotate Clockwise",
                 TextKey::RotateCounterClockwise => "Rotate Counter-Clockwise",
                 TextKey::ToggleFullscreen => "Toggle Fullscreen",
+                TextKey::ToggleBorderless => "Borderless Mode",
                 TextKey::ShortcutsHelp => "Shortcuts",
                 TextKey::AboutFastView => "About FastView",
                 TextKey::CheckForUpdates => "Check for Updates...",

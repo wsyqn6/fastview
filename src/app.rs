@@ -74,13 +74,14 @@ pub struct FastViewApp {
     pub pointer_down: bool,
     pub current_path: Option<PathBuf>,
     pub is_fullscreen: bool,
+    pub is_borderless: bool,  // 无边框模式
     pub current_scale: f32,
     pub image_cache: ImageCache,
     pub settings: Settings,
     pub show_settings: bool,
-    pub file_size: u64, // 文件大小（字节）
+    pub file_size: u64,   // 文件大小（字节）
     pub show_about: bool, // 控制"关于"对话框显示
-    
+
     // 窗口打开顺序栈，用于ESC键后开先关逻辑
     window_stack: Vec<WindowType>,
 }
@@ -102,6 +103,7 @@ impl Default for FastViewApp {
             pointer_down: false,
             current_path: None,
             is_fullscreen: false,
+            is_borderless: false,
             current_scale: 1.0,
             image_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             settings: Settings::default(),
@@ -219,7 +221,7 @@ impl FastViewApp {
         self.zoom = 1.0;
         self.rotation = 0.0;
         self.image_offset = egui::Vec2::ZERO;
-        
+
         // 获取文件大小
         self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
@@ -336,16 +338,21 @@ impl FastViewApp {
         self.is_fullscreen = !self.is_fullscreen;
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
     }
+
+    pub fn toggle_borderless(&mut self, ctx: &egui::Context) {
+        self.is_borderless = !self.is_borderless;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.is_borderless));
+    }
 }
 
 impl eframe::App for FastViewApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 全屏时隐藏菜单栏和状态栏，提升沉浸体验
-        if !self.is_fullscreen {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 全屏或无边框模式时隐藏菜单栏，提升沉浸体验
+        if !self.is_fullscreen && !self.is_borderless {
             // 传统菜单栏（类似 Windows 原生应用）
-            egui::TopBottomPanel::top("menu_bar")
-                .exact_height(24.0)
-                .show(ctx, |ui| {
+            egui::Panel::top("menu_bar")
+                .exact_size(24.0)
+                .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
                         // 文件菜单
                         ui.menu_button(self.t(TextKey::MenuFile), |ui| {
@@ -360,13 +367,13 @@ impl eframe::App for FastViewApp {
                                     )
                                     .pick_file()
                                 {
-                                    self.load_image(&path, ctx).ok();
+                                    self.load_image(&path, ui.ctx()).ok();
                                 }
                                 ui.close();
                             }
                             ui.separator();
                             if ui.button(self.t(TextKey::Exit)).clicked() {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                                 ui.close();
                             }
                         });
@@ -412,7 +419,12 @@ impl eframe::App for FastViewApp {
                             ui.separator();
                             // 全屏
                             if ui.button(self.t(TextKey::ToggleFullscreen)).clicked() {
-                                self.toggle_fullscreen(ctx);
+                                self.toggle_fullscreen(ui.ctx());
+                                ui.close();
+                            }
+                            // 无边框模式
+                            if ui.button(self.t(TextKey::ToggleBorderless)).clicked() {
+                                self.toggle_borderless(ui.ctx());
                                 ui.close();
                             }
                         });
@@ -468,18 +480,18 @@ impl eframe::App for FastViewApp {
 
         // Status bar - 悬浮半透明设计
         if self.settings.show_status_bar && !self.is_fullscreen {
-            let screen_rect = ctx.available_rect();
+            let screen_rect = ui.ctx().content_rect();
             let status_height = 28.0;
-            
+
             egui::Area::new(egui::Id::new("floating_status_bar"))
                 .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -12.0]) // 底部居中，距离底部12px
-                .show(ctx, |ui| {
-                    let visuals = &ctx.style().visuals;
-                    
+                .show(ui.ctx(), |ui| {
+                    let visuals = &ui.ctx().global_style().visuals;
+
                     // 毛玻璃背景效果
                     let bg_color = visuals.panel_fill.gamma_multiply(0.7);
                     let border_color = visuals.window_stroke.color.gamma_multiply(0.3);
-                    
+
                     egui::Frame::NONE
                         .fill(bg_color)
                         .stroke(egui::Stroke::new(1.0, border_color))
@@ -490,13 +502,13 @@ impl eframe::App for FastViewApp {
                             spread: 0,
                             color: egui::Color32::BLACK.gamma_multiply(0.15),
                         })
-                        .inner_margin(egui::Margin::symmetric(14, 6))
+                        .inner_margin(egui::Margin::symmetric(14, 3)) // 左右14px, 上下3px
                         .show(ui, |ui| {
                             // 计算最大宽度限制（避免过宽）
                             let max_width = (screen_rect.width() * 0.9).min(800.0);
                             ui.set_max_width(max_width);
                             ui.set_min_height(status_height - 12.0);
-                            
+
                             // 使用 horizontal 布局，内容自适应宽度
                             // Area 已通过 anchor 居中，所以内容会自动居中显示
                             ui.horizontal(|ui| {
@@ -506,12 +518,12 @@ impl eframe::App for FastViewApp {
                 });
         }
 
-        // CentralPanel：保留背景色，移除内边距
+        // CentralPanel：深色背景突出图片
         egui::CentralPanel::default()
             .frame(
-                egui::Frame::NONE.fill(ctx.style().visuals.panel_fill), // 使用面板背景色
+                egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 255)), // 深灰色背景
             )
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 // 处理拖拽文件
                 if ui.ctx().input(|i| !i.raw.dropped_files.is_empty()) {
                     let files = ui.ctx().input(|i| i.raw.dropped_files.clone());
@@ -527,7 +539,7 @@ impl eframe::App for FastViewApp {
                                         ]
                                         .contains(&ext_lower.as_str())
                                         {
-                                            self.load_image(&path, ctx).ok();
+                                            self.load_image(&path, ui.ctx()).ok();
                                             break;
                                         }
                                     }
@@ -587,12 +599,27 @@ impl eframe::App for FastViewApp {
 
                     // 拖动模式：按住空格键或鼠标中键时启用
                     if self.is_drag_mode && need_navigation {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-                        if ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+                        let is_pressed = ui.ctx().input(|i| i.pointer.button_down(egui::PointerButton::Primary));
+                        
+                        // 注意：在 Windows 上，Grab/Grabbing 光标可能不被原生支持
+                        // 如果图标没变，可以尝试以下替代方案：
+                        // 1. AllScroll - 四向箭头（当前默认）
+                        // 2. Grab/Grabbing - 抓手图标（可能需要自定义光标文件）
+                        // 3. Move - 移动图标
+                        
+                        let cursor_icon = if is_pressed {
+                            egui::CursorIcon::Grabbing  // 按下时的闭手图标
+                        } else {
+                            egui::CursorIcon::Grab      // 未按下时的抓手图标
+                        };
+                        
+                        ui.ctx().set_cursor_icon(cursor_icon);
+                        
+                        if is_pressed {
                             if !self.pointer_down {
                                 self.pointer_down = true;
                             } else {
-                                let delta = ctx.input(|i| i.pointer.delta());
+                                let delta = ui.ctx().input(|i| i.pointer.delta());
                                 self.image_offset += delta;
                             }
                         } else {
@@ -610,7 +637,7 @@ impl eframe::App for FastViewApp {
                                 (120.0 * img_ratio, 120.0)
                             };
                             let thumb_size = egui::vec2(thumb_w, thumb_h);
-                            let screen_rect = ui.ctx().available_rect();
+                            let screen_rect = ui.ctx().content_rect();
                             let thumb_pos = egui::Pos2::new(
                                 screen_rect.right() - thumb_size.x - 10.0,
                                 screen_rect.bottom() - thumb_size.y - 10.0,
@@ -674,7 +701,7 @@ impl eframe::App for FastViewApp {
                 } else {
                     egui::Area::new(egui::Id::new("welcome_area"))
                         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                        .show(ctx, |ui| {
+                        .show(ui.ctx(), |ui| {
                             let response = ui.label(self.t(TextKey::ClickToOpen));
                             if response.clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
@@ -687,14 +714,14 @@ impl eframe::App for FastViewApp {
                                     )
                                     .pick_file()
                                 {
-                                    self.load_image(&path, ctx).ok();
+                                    self.load_image(&path, ui.ctx()).ok();
                                 }
                             }
                         });
                 }
             });
 
-        for event in ctx.input(|i| i.events.clone()) {
+        for event in ui.ctx().input(|i| i.events.clone()) {
             if let egui::Event::Key {
                 key,
                 pressed,
@@ -705,10 +732,10 @@ impl eframe::App for FastViewApp {
                 if pressed {
                     match key {
                         egui::Key::ArrowLeft => {
-                            self.prev_image(ctx);
+                            self.prev_image(ui.ctx());
                         }
                         egui::Key::ArrowRight => {
-                            self.next_image(ctx);
+                            self.next_image(ui.ctx());
                         }
                         egui::Key::Equals | egui::Key::Plus => {
                             self.zoom_in(self.current_scale);
@@ -735,7 +762,10 @@ impl eframe::App for FastViewApp {
                             self.rotate_right();
                         }
                         egui::Key::F => {
-                            self.toggle_fullscreen(ctx);
+                            self.toggle_fullscreen(ui.ctx());
+                        }
+                        egui::Key::V => {
+                            self.toggle_borderless(ui.ctx());
                         }
                         egui::Key::H => {
                             self.show_shortcuts = !self.show_shortcuts;
@@ -758,11 +788,12 @@ impl eframe::App for FastViewApp {
                                     WindowType::About => self.show_about = false,
                                 }
                             }
-                            // 如果没有打开的窗口，则退出全屏或关闭程序
+                            // 如果没有打开的窗口，则退出全屏或直接退出程序
                             else if self.is_fullscreen {
-                                self.toggle_fullscreen(ctx);
+                                self.toggle_fullscreen(ui.ctx());
                             } else {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                // 直接退出程序
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                             }
                         }
                         _ => {}
@@ -770,6 +801,18 @@ impl eframe::App for FastViewApp {
                 }
                 if !pressed && key == egui::Key::Space {
                     self.is_drag_mode = false;
+                }
+            }
+            
+            // 处理 ? 键 (Shift+/)
+            if let egui::Event::Text(text) = event {
+                if text == "?" {
+                    self.show_shortcuts = !self.show_shortcuts;
+                    if self.show_shortcuts {
+                        self.window_stack.push(WindowType::Shortcuts);
+                    } else {
+                        self.window_stack.retain(|w| w != &WindowType::Shortcuts);
+                    }
                 }
             }
         }
@@ -793,17 +836,16 @@ impl eframe::App for FastViewApp {
             let current_max_cache = self.settings.max_cache_size;
             let current_show_status = self.settings.show_status_bar;
 
-
             // Settings window - 卡片式设计，无标题栏
             egui::Window::new(settings_text)
                 .open(&mut self.show_settings)
-                .title_bar(false)  // 移除标题栏
+                .title_bar(false) // 移除标题栏
                 .resizable(false)
                 .collapsible(false)
                 .fixed_size([320.0, 240.0])
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])  // 居中显示
-                .frame(egui::Frame::window(&ctx.style()))  // 使用窗口样式
-                .show(ctx, |ui: &mut egui::Ui| {
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]) // 居中显示
+                .frame(egui::Frame::window(&ui.ctx().global_style())) // 使用窗口样式
+                .show(ui.ctx(), |ui: &mut egui::Ui| {
                     let mut temp_lang = current_lang;
                     let mut temp_max_cache = current_max_cache;
                     let mut temp_show_status = current_show_status;
@@ -850,7 +892,7 @@ impl eframe::App for FastViewApp {
         if self.show_shortcuts {
             let lang = self.settings.language;
             let title = self.t(TextKey::ShortcutsHelp);
-            
+
             // 提前获取所有翻译文本，避免在闭包中借用 self
             let navigation_text = TextKey::Navigation.text(lang);
             let zoom_view_text = TextKey::ZoomAndView.text(lang);
@@ -864,8 +906,8 @@ impl eframe::App for FastViewApp {
                 .resizable(false)
                 .fixed_size([380.0, 420.0])
                 .title_bar(true)
-                .show(ctx, |ui| {
-                    let visuals = &ctx.style().visuals;
+                .show(ui.ctx(), |ui| {
+                    let visuals = &ui.ctx().global_style().visuals;
                     ui.add_space(4.0);
 
                     // 辅助函数：创建键盘按键样式
@@ -945,6 +987,7 @@ impl eframe::App for FastViewApp {
                     // 系统部分
                     section_title(ui, system_text);
                     shortcut_row(ui, &["F"], TextKey::ToggleFullscreen.text(lang));
+                    shortcut_row(ui, &["V"], TextKey::ToggleBorderless.text(lang));
                     shortcut_row(ui, &["Esc"], TextKey::ExitFullscreen.text(lang));
                     shortcut_row(ui, &["H", "?"], TextKey::ShowHideShortcuts.text(lang));
 
@@ -967,7 +1010,7 @@ impl eframe::App for FastViewApp {
                 .collapsible(false)
                 .resizable(false)
                 .fixed_size([320.0, 200.0])
-                .show(ctx, |ui| {
+                .show(ui.ctx(), |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space(20.0);
                         ui.heading("FastView");
@@ -1000,8 +1043,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         // 限制文件名最大宽度为 150px，超出部分显示省略号
         ui.add_sized(
             [150.0, 16.0],
-            egui::Label::new(egui::RichText::new(filename).strong().size(12.0))
-                .truncate()
+            egui::Label::new(egui::RichText::new(filename).strong().size(12.0)).truncate(),
         );
 
         // 自定义分隔符
@@ -1062,7 +1104,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
                     egui::RichText::new(&zoom_text)
                         .size(10.0)
                         .strong() // 加粗增强可读性
-                        .color(badge_text)
+                        .color(badge_text),
                 );
             });
     } else {
@@ -1070,7 +1112,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         ui.label(
             egui::RichText::new(&zoom_text)
                 .size(10.0)
-                .color(visuals.weak_text_color())
+                .color(visuals.weak_text_color()),
         );
     }
 
@@ -1091,13 +1133,13 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         ui.add_space(8.0);
         ui.separator();
         ui.add_space(8.0);
-        
+
         let size_text = app.format_file_size(app.file_size);
         ui.label(
             egui::RichText::new(size_text)
                 .size(10.0)
                 .family(egui::FontFamily::Monospace)
-                .color(visuals.weak_text_color())
+                .color(visuals.weak_text_color()),
         );
     }
 }
