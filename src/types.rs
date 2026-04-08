@@ -212,11 +212,11 @@ pub enum ZoomMode {
 
 /// 缓存条目类型(支持双层缓存)
 #[derive(Clone)]
-#[allow(dead_code)]  // 预留变体和方法,用于未来扩展
+#[allow(dead_code)] // 预留变体和方法,用于未来扩展
 pub enum CacheEntry {
     /// 完整图片缓存(主纹理 + 缩略图)
     FullImage(Arc<CachedImage>),
-    
+
     /// 仅缩略图缓存(用于预加载的相邻图片)
     ThumbnailOnly {
         thumb_texture: egui::TextureHandle,
@@ -224,7 +224,7 @@ pub enum CacheEntry {
     },
 }
 
-#[allow(dead_code)]  // 预留方法,用于未来扩展
+#[allow(dead_code)] // 预留方法,用于未来扩展
 impl CacheEntry {
     /// 获取主纹理(如果有)
     pub fn main_texture(&self) -> Option<&egui::TextureHandle> {
@@ -233,7 +233,7 @@ impl CacheEntry {
             CacheEntry::ThumbnailOnly { .. } => None,
         }
     }
-    
+
     /// 获取缩略图纹理
     pub fn thumbnail_texture(&self) -> &egui::TextureHandle {
         match self {
@@ -241,7 +241,7 @@ impl CacheEntry {
             CacheEntry::ThumbnailOnly { thumb_texture, .. } => thumb_texture,
         }
     }
-    
+
     /// 获取图片尺寸
     pub fn image_size(&self) -> egui::Vec2 {
         match self {
@@ -249,7 +249,7 @@ impl CacheEntry {
             CacheEntry::ThumbnailOnly { image_size, .. } => *image_size,
         }
     }
-    
+
     /// 估算内存占用(字节)
     pub fn estimated_memory_bytes(&self) -> usize {
         match self {
@@ -257,10 +257,10 @@ impl CacheEntry {
             CacheEntry::ThumbnailOnly { .. } => {
                 // 缩略图固定150x150 RGBA
                 150 * 150 * 4
-            },
+            }
         }
     }
-    
+
     /// 判断是否为完整图片
     pub fn is_full_image(&self) -> bool {
         matches!(self, CacheEntry::FullImage(_))
