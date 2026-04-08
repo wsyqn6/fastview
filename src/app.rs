@@ -727,9 +727,33 @@ impl eframe::App for FastViewApp {
                     image_size,
                 });
                 
-                // 存入缓存
+                // 存入缓存前检查内存限制
                 {
                     let mut cache_guard = self.image_cache.lock().unwrap();
+                    
+                    // 估算新条目加入后的总内存
+                    let new_entry_bytes = decoded.rgba_data.len() + decoded.thumbnail_rgba.len();
+                    let current_memory: usize = cache_guard.iter()
+                        .map(|(_, entry)| entry.estimated_memory_bytes())
+                        .sum();
+                    
+                    let max_memory_mb = 100; // 最大 100MB
+                    let max_memory_bytes = max_memory_mb * 1024 * 1024;
+                    
+                    // 如果超出限制，移除最旧的条目
+                    while current_memory + new_entry_bytes > max_memory_bytes && cache_guard.len() > 2 {
+                        if let Some((oldest_path, _)) = cache_guard.iter().next() {
+                            let oldest_path = oldest_path.clone();
+                            if let Some(removed) = cache_guard.pop(&oldest_path) {
+                                let removed_bytes = removed.estimated_memory_bytes();
+                                eprintln!("[CACHE] Evicted: {:?} (freed {:.1}MB)", 
+                                    oldest_path.file_name(), 
+                                    removed_bytes as f64 / (1024.0 * 1024.0));
+                            }
+                        }
+                    }
+                    
+                    // 存入新条目
                     cache_guard.put(decoded.path.clone(), cached);
                 }
                 
