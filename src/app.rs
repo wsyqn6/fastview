@@ -107,8 +107,11 @@ pub struct FastViewApp {
     // 目录缓存，避免频繁扫描文件系统
     dir_cache: Option<DirectoryCache>,
     
-    // 异步加载通道
+    // 异步加载通道（当前图片）
     image_rx: Option<Receiver<DecodedImageData>>,
+    
+    // 预加载消息通道（相邻图片）
+    preload_rx: Option<Receiver<DecodedImageData>>,
 }
 
 impl Default for FastViewApp {
@@ -116,6 +119,7 @@ impl Default for FastViewApp {
         use lru::LruCache;
         
         let (_tx, rx) = mpsc::channel();
+        let (_preload_tx, preload_rx) = mpsc::channel();
         
         Self {
             texture: None,
@@ -142,6 +146,7 @@ impl Default for FastViewApp {
             window_stack: Vec::new(),
             dir_cache: None,
             image_rx: Some(rx),
+            preload_rx: Some(preload_rx),
         }
     }
 }
@@ -520,7 +525,9 @@ impl FastViewApp {
             };
             
             if !already_cached {
-                // 异步预加载（只解码，触发操作系统文件缓存）
+                // 异步预加载（解码并通过通道发送到主线程）
+                let (tx, rx) = mpsc::channel();
+                self.preload_rx = Some(rx); // 保存接收端
                 
                 std::thread::spawn(move || {
                     if let Ok(img) = image::open(&next_path) {
@@ -528,19 +535,28 @@ impl FastViewApp {
                         let mut dynamic_img = img;
                         dynamic_img.apply_orientation(orientation);
                         
-                        let (_width, _height) = dynamic_img.dimensions();
-                        let _rgba_data = dynamic_img.to_rgba8().into_raw();
+                        let (width, height) = dynamic_img.dimensions();
+                        let rgba_data = dynamic_img.to_rgba8().into_raw();
                         
                         // 生成缩略图
                         let thumb = dynamic_img.thumbnail(200, 200);
-                        let _thumb_rgba = thumb.to_rgba8().into_raw();
+                        let (thumb_w, thumb_h) = thumb.dimensions();
+                        let thumbnail_rgba = thumb.to_rgba8().into_raw();
                         
-                        // 注意：由于纹理创建需要 egui::Context，我们不能在后台线程创建
-                        // 所以这里只预解码数据，当用户切换到此图片时会从磁盘快速加载
-                        // 这是一个折中方案，避免了复杂的跨线程纹理传递
+                        let decoded = DecodedImageData {
+                            path: next_path.clone(),
+                            rgba_data,
+                            width,
+                            height,
+                            thumbnail_rgba,
+                            thumb_width: thumb_w,
+                            thumb_height: thumb_h,
+                        };
                         
-                        // 记录预加载完成（可选：可以添加一个标志位）
-                        eprintln!("[PRELOAD] Decoded: {:?}", next_path.file_name());
+                        // 发送到主线程
+                        let _ = tx.send(decoded);
+                        
+                        eprintln!("[PRELOAD] Sent: {:?}", next_path.file_name());
                     }
                 });
             }
@@ -679,6 +695,49 @@ impl eframe::App for FastViewApp {
         if let Some(rx) = &self.image_rx {
             if let Ok(decoded) = rx.try_recv() {
                 self.create_texture_from_decoded(decoded, ui.ctx());
+                ui.ctx().request_repaint();
+            }
+        }
+        
+        // 检查预加载完成的图片
+        if let Some(rx) = &self.preload_rx {
+            if let Ok(decoded) = rx.try_recv() {
+                eprintln!("[PRELOAD] Received: {:?}", decoded.path.file_name());
+                
+                // 在主线程创建纹理并存入缓存
+                let image_size = egui::vec2(decoded.width as f32, decoded.height as f32);
+                
+                // 创建主纹理
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [decoded.width as usize, decoded.height as usize],
+                    &decoded.rgba_data,
+                );
+                let texture = ui.ctx().load_texture("preload_main", color_image, egui::TextureOptions::LINEAR);
+                
+                // 创建缩略图纹理
+                let thumb_color = egui::ColorImage::from_rgba_unmultiplied(
+                    [decoded.thumb_width as usize, decoded.thumb_height as usize],
+                    &decoded.thumbnail_rgba,
+                );
+                let thumb_texture = ui.ctx().load_texture("preload_thumb", thumb_color, egui::TextureOptions::LINEAR);
+                
+                let cached = Arc::new(CachedImage {
+                    texture,
+                    thumbnail_texture: thumb_texture,
+                    image_size,
+                });
+                
+                // 存入缓存
+                {
+                    let mut cache_guard = self.image_cache.lock().unwrap();
+                    cache_guard.put(decoded.path.clone(), cached);
+                }
+                
+                eprintln!("[PRELOAD] Cached: {:?}", decoded.path.file_name());
+                
+                // 清空通道，准备下一次预加载
+                self.preload_rx = None;
+                
                 ui.ctx().request_repaint();
             }
         }
