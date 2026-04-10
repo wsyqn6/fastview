@@ -69,5 +69,4 @@ impl CacheEntry {
     }
 }
 
-
 pub type ImageCache = Arc<std::sync::Mutex<LruCache<PathBuf, CacheEntry>>>;
