@@ -121,12 +121,11 @@ impl FastViewApp {
     fn load_settings(&mut self) {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("fastview").join("settings.json");
-            if config_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&config_path) {
-                    if let Ok(settings) = serde_json::from_str(&content) {
-                        self.settings = settings;
-                    }
-                }
+            if config_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&config_path)
+                && let Ok(settings) = serde_json::from_str(&content)
+            {
+                self.settings = settings;
             }
         }
     }
@@ -905,22 +904,20 @@ impl eframe::App for FastViewApp {
                 if ui.ctx().input(|i| !i.raw.dropped_files.is_empty()) {
                     let files = ui.ctx().input(|i| i.raw.dropped_files.clone());
                     for file in files {
-                        if let Some(path) = file.path {
-                            if path.is_file() {
-                                if let Some(ext) = path.extension() {
-                                    if let Some(ext_str) = ext.to_str() {
-                                        let ext_lower = ext_str.to_lowercase();
-                                        if [
-                                            "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff",
-                                            "tif", "ico", "avif",
-                                        ]
-                                        .contains(&ext_lower.as_str())
-                                        {
-                                            self.load_image(&path, ui.ctx()).ok();
-                                            break;
-                                        }
-                                    }
-                                }
+                        if let Some(path) = file.path
+                            && path.is_file()
+                            && let Some(ext) = path.extension()
+                            && let Some(ext_str) = ext.to_str()
+                        {
+                            let ext_lower = ext_str.to_lowercase();
+                            if [
+                                "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "ico",
+                                "avif",
+                            ]
+                            .contains(&ext_lower.as_str())
+                            {
+                                self.load_image(&path, ui.ctx()).ok();
+                                break;
                             }
                         }
                     }
@@ -1007,75 +1004,69 @@ impl eframe::App for FastViewApp {
                     }
 
                     // 显示缩略图导航（只要需要导航就显示，不依赖拖动模式）
-                    if need_navigation {
-                        if let Some(ref thumb_tex) = self.thumbnail_texture {
-                            let img_ratio = self.image_size.x / self.image_size.y;
-                            let (thumb_w, thumb_h) = if img_ratio > 1.0 {
-                                (160.0, 160.0 / img_ratio)
-                            } else {
-                                (120.0 * img_ratio, 120.0)
-                            };
-                            let thumb_size = egui::vec2(thumb_w, thumb_h);
-                            let screen_rect = ui.ctx().content_rect();
-                            let thumb_pos = egui::Pos2::new(
-                                screen_rect.right() - thumb_size.x - 10.0,
-                                screen_rect.bottom() - thumb_size.y - 10.0,
-                            );
-                            let thumb_rect = egui::Rect::from_min_size(thumb_pos, thumb_size);
+                    if need_navigation && let Some(ref thumb_tex) = self.thumbnail_texture {
+                        let img_ratio = self.image_size.x / self.image_size.y;
+                        let (thumb_w, thumb_h) = if img_ratio > 1.0 {
+                            (160.0, 160.0 / img_ratio)
+                        } else {
+                            (120.0 * img_ratio, 120.0)
+                        };
+                        let thumb_size = egui::vec2(thumb_w, thumb_h);
+                        let screen_rect = ui.ctx().content_rect();
+                        let thumb_pos = egui::Pos2::new(
+                            screen_rect.right() - thumb_size.x - 10.0,
+                            screen_rect.bottom() - thumb_size.y - 10.0,
+                        );
+                        let thumb_rect = egui::Rect::from_min_size(thumb_pos, thumb_size);
 
-                            let mut thumb_image = egui::Image::new((thumb_tex.id(), thumb_size));
-                            if self.rotation != 0.0 {
-                                let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
-                                thumb_image = thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
-                            }
-                            ui.put(thumb_rect, thumb_image);
-
-                            // 计算红框：映射可视区域到缩略图
-                            // 1. 使用已经计算好的缩放后图片尺寸（考虑旋转）
-                            let (scaled_w, scaled_h) = if self.rotation % 180.0 == 0.0 {
-                                (size.x, size.y)
-                            } else {
-                                (size.y, size.x)
-                            };
-
-                            // 2. 计算图片左上角相对于可视区域中心的位置
-                            let image_left = center.x + self.image_offset.x - size.x / 2.0;
-                            let image_top = center.y + self.image_offset.y - size.y / 2.0;
-
-                            // 3. 计算可视区域在图片上的相对位置 (0.0 - 1.0)
-                            let view_ratio_x = if scaled_w > available.x {
-                                (-image_left / (scaled_w - available.x)).clamp(0.0, 1.0)
-                            } else {
-                                0.5 // 图片完全显示，居中
-                            };
-                            let view_ratio_y = if scaled_h > available.y {
-                                (-image_top / (scaled_h - available.y)).clamp(0.0, 1.0)
-                            } else {
-                                0.5 // 图片完全显示，居中
-                            };
-
-                            // 4. 计算红框大小（可视区域占图片的比例）
-                            let view_rect_w =
-                                (thumb_size.x * available.x / scaled_w).min(thumb_size.x);
-                            let view_rect_h =
-                                (thumb_size.y * available.y / scaled_h).min(thumb_size.y);
-
-                            // 5. 计算红框位置
-                            let view_rect_x =
-                                thumb_pos.x + (thumb_size.x - view_rect_w) * view_ratio_x;
-                            let view_rect_y =
-                                thumb_pos.y + (thumb_size.y - view_rect_h) * view_ratio_y;
-
-                            ui.painter().rect_stroke(
-                                egui::Rect::from_min_size(
-                                    egui::Pos2::new(view_rect_x, view_rect_y),
-                                    egui::vec2(view_rect_w, view_rect_h),
-                                ),
-                                2.0,
-                                egui::Stroke::new(2.0, egui::Color32::RED),
-                                egui::StrokeKind::Inside,
-                            );
+                        let mut thumb_image = egui::Image::new((thumb_tex.id(), thumb_size));
+                        if self.rotation != 0.0 {
+                            let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
+                            thumb_image = thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
                         }
+                        ui.put(thumb_rect, thumb_image);
+
+                        // 计算红框：映射可视区域到缩略图
+                        // 1. 使用已经计算好的缩放后图片尺寸（考虑旋转）
+                        let (scaled_w, scaled_h) = if self.rotation % 180.0 == 0.0 {
+                            (size.x, size.y)
+                        } else {
+                            (size.y, size.x)
+                        };
+
+                        // 2. 计算图片左上角相对于可视区域中心的位置
+                        let image_left = center.x + self.image_offset.x - size.x / 2.0;
+                        let image_top = center.y + self.image_offset.y - size.y / 2.0;
+
+                        // 3. 计算可视区域在图片上的相对位置 (0.0 - 1.0)
+                        let view_ratio_x = if scaled_w > available.x {
+                            (-image_left / (scaled_w - available.x)).clamp(0.0, 1.0)
+                        } else {
+                            0.5 // 图片完全显示，居中
+                        };
+                        let view_ratio_y = if scaled_h > available.y {
+                            (-image_top / (scaled_h - available.y)).clamp(0.0, 1.0)
+                        } else {
+                            0.5 // 图片完全显示，居中
+                        };
+
+                        // 4. 计算红框大小（可视区域占图片的比例）
+                        let view_rect_w = (thumb_size.x * available.x / scaled_w).min(thumb_size.x);
+                        let view_rect_h = (thumb_size.y * available.y / scaled_h).min(thumb_size.y);
+
+                        // 5. 计算红框位置
+                        let view_rect_x = thumb_pos.x + (thumb_size.x - view_rect_w) * view_ratio_x;
+                        let view_rect_y = thumb_pos.y + (thumb_size.y - view_rect_h) * view_ratio_y;
+
+                        ui.painter().rect_stroke(
+                            egui::Rect::from_min_size(
+                                egui::Pos2::new(view_rect_x, view_rect_y),
+                                egui::vec2(view_rect_w, view_rect_h),
+                            ),
+                            2.0,
+                            egui::Stroke::new(2.0, egui::Color32::RED),
+                            egui::StrokeKind::Inside,
+                        );
                     }
                 } else if self.current_path.is_some() {
                     // Loading 状态:显示缩略图或加载指示器
@@ -1109,8 +1100,8 @@ impl eframe::App for FastViewApp {
                         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                         .show(ui.ctx(), |ui| {
                             let response = ui.label(self.t(TextKey::ClickToOpen));
-                            if response.clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
+                            if response.clicked()
+                                && let Some(path) = rfd::FileDialog::new()
                                     .add_filter(
                                         "Images",
                                         &[
@@ -1119,9 +1110,8 @@ impl eframe::App for FastViewApp {
                                         ],
                                     )
                                     .pick_file()
-                                {
-                                    self.load_image(&path, ui.ctx()).ok();
-                                }
+                            {
+                                self.load_image(&path, ui.ctx()).ok();
                             }
                         });
                 }
@@ -1219,14 +1209,14 @@ impl eframe::App for FastViewApp {
             }
 
             // 处理 ? 键 (Shift+/)
-            if let egui::Event::Text(text) = event {
-                if text == "?" {
-                    self.show_shortcuts = !self.show_shortcuts;
-                    if self.show_shortcuts {
-                        self.window_stack.push(WindowType::Shortcuts);
-                    } else {
-                        self.window_stack.retain(|w| w != &WindowType::Shortcuts);
-                    }
+            if let egui::Event::Text(text) = event
+                && text == "?"
+            {
+                self.show_shortcuts = !self.show_shortcuts;
+                if self.show_shortcuts {
+                    self.window_stack.push(WindowType::Shortcuts);
+                } else {
+                    self.window_stack.retain(|w| w != &WindowType::Shortcuts);
                 }
             }
         }
