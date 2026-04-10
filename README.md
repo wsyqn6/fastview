@@ -77,6 +77,7 @@ Download the latest release from the [Releases page](https://github.com/wsyqn6/f
 | Fill Window | `2` |
 | Original Size | `1` |
 | Fullscreen | `f` |
+| Borderless Mode | `v` |
 | Drag Mode | `Space` |
 | Exit Fullscreen | `Esc` |
 | Show Shortcuts | `H` / `?` |
@@ -185,6 +186,7 @@ cargo build --release
 | 填充窗口 | `2` |
 | 原始尺寸 | `1` |
 | 全屏 | `f` |
+| 无边框模式 | `v` |
 | 拖动模式 | `Space` |
 | 退出全屏 | `Esc` |
 | 显示快捷键 | `H` / `?` |
