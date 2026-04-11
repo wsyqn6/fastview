@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="FastView - A lightning-fast, lightweight image viewer built with Rust">
+    <title>FastView - Lightning-Fast Image Viewer</title>
+    
+    <!-- Performance: DNS prefetch for external resources -->
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* Performance: Font display swap */
+        @font-face {
+            font-family: 'Orbitron';
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Rajdhani';
+            font-display: swap;
+        }
+        @font-face {
+            font-family: 'Fira Code';
+            font-display: swap;
+        }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #16161f;
+            --neon-cyan: #00d4ff;
+            --neon-purple: #b829dd;
+            --text-primary: #e0e0e0;
+            --text-secondary: #a0a0b0;
+            --border-color: rgba(0, 212, 255, 0.2);
+            --glow-cyan: 0 0 20px rgba(0, 212, 255, 0.5);
+            --glow-purple: 0 0 20px rgba(184, 41, 221, 0.5);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            line-height: 1.6;
+            /* Performance: GPU acceleration for animations */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Particle Canvas */
+        #particle-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            /* Performance: Hint for compositor */
+            will-change: transform;
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 1.5rem 3rem;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+            align-items: center;
+        }
+
+        .lang-switcher {
+            background: transparent;
+            border: 1px solid var(--neon-cyan);
+            color: var(--neon-cyan);
+            padding: 0.4rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            margin-left: 1rem;
+        }
+
+        .lang-switcher:hover {
+            background: var(--neon-cyan);
+            color: var(--bg-primary);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--neon-cyan);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple));
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(3rem, 10vw, 7rem);
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+            animation: glow-pulse 3s ease-in-out infinite;
+        }
+
+        @keyframes glow-pulse {
+            0%, 100% { filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.5)); }
+            50% { filter: drop-shadow(0 0 40px rgba(184, 41, 221, 0.7)); }
+        }
+
+        .hero-subtitle {
+            font-size: clamp(1.2rem, 3vw, 1.8rem);
+            color: var(--text-secondary);
+            margin-bottom: 3rem;
+            font-weight: 300;
+            letter-spacing: 0.05em;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 1rem 2.5rem;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+            color: var(--bg-primary);
+            box-shadow: var(--glow-cyan);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.6);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--neon-cyan);
+            border: 2px solid var(--neon-cyan);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(0, 212, 255, 0.1);
+            transform: translateY(-3px);
+            box-shadow: var(--glow-cyan);
+        }
+
+        /* Sections */
+        section {
+            padding: 6rem 2rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .section-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            text-align: center;
+            margin-bottom: 4rem;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Features Grid */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2.5rem;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            /* Performance: GPU layer for hover effects */
+            will-change: transform;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-8px);
+            border-color: var(--neon-cyan);
+            box-shadow: var(--glow-cyan), 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+            display: block;
+        }
+
+        .feature-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--neon-cyan);
+        }
+
+        .feature-description {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            line-height: 1.7;
+        }
+
+        /* Tech Stack */
+        .tech-stack {
+            background: var(--bg-secondary);
+        }
+
+        .tech-grid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 3rem;
+            flex-wrap: wrap;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .tech-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem 3rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            min-width: 150px;
+        }
+
+        .tech-item:hover {
+            border-color: var(--neon-purple);
+            box-shadow: var(--glow-purple);
+            transform: scale(1.05);
+        }
+
+        .tech-name {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            color: var(--neon-cyan);
+            margin-top: 0.5rem;
+        }
+
+        /* Download Section */
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .download-card {
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            padding: 3rem 2rem;
+            text-align: center;
+            transition: all 0.4s ease;
+            position: relative;
+            /* Performance: GPU layer for hover effects */
+            will-change: transform;
+        }
+
+        .download-card:hover {
+            border-color: var(--neon-cyan);
+            box-shadow: var(--glow-cyan);
+            transform: translateY(-5px);
+        }
+
+        .platform-icon {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .platform-name {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+            color: var(--neon-cyan);
+        }
+
+        .platform-info {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            font-size: 1rem;
+        }
+
+        .download-btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
+            color: var(--bg-primary);
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .download-btn:hover {
+            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.6);
+            transform: scale(1.05);
+        }
+
+        /* Quick Start */
+        .quick-start {
+            background: var(--bg-secondary);
+        }
+
+        .code-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .code-header {
+            background: rgba(0, 212, 255, 0.1);
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .code-title {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--neon-cyan);
+            font-size: 1rem;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--neon-cyan);
+            color: var(--neon-cyan);
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: var(--neon-cyan);
+            color: var(--bg-primary);
+        }
+
+        .code-block {
+            padding: 2rem;
+            font-family: 'Fira Code', monospace;
+            font-size: 1rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .code-line {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .comment {
+            color: var(--text-secondary);
+        }
+
+        .command {
+            color: var(--neon-cyan);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--bg-primary);
+            border-top: 1px solid var(--border-color);
+            padding: 3rem 2rem;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s ease;
+            font-weight: 500;
+        }
+
+        .footer-link:hover {
+            color: var(--neon-cyan);
+        }
+
+        .footer-text {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .heart {
+            color: var(--neon-purple);
+            animation: heartbeat 1.5s ease-in-out infinite;
+        }
+
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        /* Scroll Animations */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.5rem;
+            }
+
+            .nav-links {
+                gap: 1rem;
+                font-size: 0.9rem;
+            }
+
+            section {
+                padding: 4rem 1.5rem;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+                width: 100%;
+                max-width: 300px;
+            }
+
+            .btn {
+                width: 100%;
+            }
+
+            .features-grid,
+            .download-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .tech-grid {
+                gap: 1.5rem;
+            }
+
+            .tech-item {
+                padding: 1.5rem 2rem;
+                min-width: 120px;
+            }
+        }
+
+        /* Performance: Optimize transition properties */
+        .lang-transition {
+            transition: opacity 0.3s ease;
+            will-change: opacity;
+        }
+
+        .lang-fade-out {
+            opacity: 0;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, var(--neon-cyan), var(--neon-purple));
+            border-radius: 5px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--neon-cyan);
+        }
+    </style>
+</head>
+<body>
+    <!-- Particle Background -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- Navigation -->
+    <nav>
+        <div class="logo">FASTVIEW</div>
+        <ul class="nav-links">
+            <li><a href="#features" data-en="Features" data-zh="功能特性">Features</a></li>
+            <li><a href="#tech" data-en="Tech Stack" data-zh="技术栈">Tech Stack</a></li>
+            <li><a href="#download" data-en="Download" data-zh="下载">Download</a></li>
+            <li><a href="https://github.com/wsyqn6/fastview" target="_blank">GitHub</a></li>
+            <li><button class="lang-switcher" onclick="toggleLanguage()">中文</button></li>
+        </ul>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1 class="hero-title">FASTVIEW</h1>
+        <p class="hero-subtitle" data-en="A Lightning-Fast Image Viewer Built with Rust" data-zh="基于 Rust 构建的极速图片查看器">A Lightning-Fast Image Viewer Built with Rust</p>
+        <div class="hero-buttons">
+            <a href="#download" class="btn btn-primary" data-en="Download Now" data-zh="立即下载">Download Now</a>
+            <a href="https://github.com/wsyqn6/fastview" target="_blank" class="btn btn-secondary" data-en="View on GitHub" data-zh="查看 GitHub">View on GitHub</a>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features">
+        <h2 class="section-title fade-in" data-en="Why FastView?" data-zh="为什么选择 FastView？">Why FastView?</h2>
+        <div class="features-grid">
+            <div class="feature-card fade-in">
+                <span class="feature-icon">⚡</span>
+                <h3 class="feature-title" data-en="Lightning Speed" data-zh="极速启动">Lightning Speed</h3>
+                <p class="feature-description" data-en="Startup in under 1 second with instant image loading. Optimized for performance with minimal resource usage." data-zh="启动时间低于 1 秒，图片即时加载。性能优化，资源占用极小。">Startup in under 1 second with instant image loading. Optimized for performance with minimal resource usage.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <span class="feature-icon">💾</span>
+                <h3 class="feature-title" data-en="Tiny Footprint" data-zh="体积小巧">Tiny Footprint</h3>
+                <p class="feature-description" data-en="Only ~5MB executable size and less than 20MB memory usage. Lightweight without compromising features." data-zh="可执行文件仅约 5MB，内存占用不到 20MB。轻量但不牺牲功能。">Only ~5MB executable size and less than 20MB memory usage. Lightweight without compromising features.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <span class="feature-icon">🖼️</span>
+                <h3 class="feature-title" data-en="Wide Format Support" data-zh="格式全面">Wide Format Support</h3>
+                <p class="feature-description" data-en="Support JPEG, PNG, GIF, WebP, BMP, TIFF, ICO, AVIF and more. View any image format seamlessly." data-zh="支持 JPEG、PNG、GIF、WebP、BMP、TIFF、ICO、AVIF 等。无缝查看任何图片格式。">Support JPEG, PNG, GIF, WebP, BMP, TIFF, ICO, AVIF and more. View any image format seamlessly.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <span class="feature-icon">🔄</span>
+                <h3 class="feature-title" data-en="EXIF Auto-Rotation" data-zh="自动旋转">EXIF Auto-Rotation</h3>
+                <p class="feature-description" data-en="Automatically correct photo orientation based on EXIF metadata. No more sideways photos." data-zh="根据 EXIF 元数据自动校正照片方向。不再有误方向的图片。">Automatically correct photo orientation based on EXIF metadata. No more sideways photos.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <span class="feature-icon">🎯</span>
+                <h3 class="feature-title" data-en="Smart Zoom & Pan" data-zh="智能缩放">Smart Zoom & Pan</h3>
+                <p class="feature-description" data-en="Fit to window, fill screen, original size, or custom zoom. Smooth drag-to-pan with keyboard shortcuts." data-zh="适应窗口、填充屏幕、原始尺寸或自定义缩放。流畅的拖动平移和键盘快捷键。">Fit to window, fill screen, original size, or custom zoom. Smooth drag-to-pan with keyboard shortcuts.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <span class="feature-icon">🌐</span>
+                <h3 class="feature-title" data-en="Cross-Platform" data-zh="跨平台">Cross-Platform</h3>
+                <p class="feature-description" data-en="Native experience on Windows, Linux, and macOS. One codebase, perfect performance everywhere." data-zh="Windows、Linux 和 macOS 原生体验。一套代码，处处完美运行。">Native experience on Windows, Linux, and macOS. One codebase, perfect performance everywhere.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Tech Stack Section -->
+    <section id="tech" class="tech-stack">
+        <h2 class="section-title fade-in" data-en="Built With Modern Tech" data-zh="现代技术栈">Built With Modern Tech</h2>
+        <div class="tech-grid">
+            <div class="tech-item fade-in">
+                <div style="font-size: 3rem;">🦀</div>
+                <div class="tech-name">Rust</div>
+            </div>
+            <div class="tech-item fade-in">
+                <div style="font-size: 3rem;">🎨</div>
+                <div class="tech-name">Eframe/egui</div>
+            </div>
+            <div class="tech-item fade-in">
+                <div style="font-size: 3rem;">🖼️</div>
+                <div class="tech-name">image-rs</div>
+            </div>
+            <div class="tech-item fade-in">
+                <div style="font-size: 3rem;">📂</div>
+                <div class="tech-name">rfd</div>
+            </div>
+            <div class="tech-item fade-in">
+                <div style="font-size: 3rem;">⚙️</div>
+                <div class="tech-name">serde</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section id="download">
+        <h2 class="section-title fade-in" data-en="Get FastView" data-zh="获取 FastView">Get FastView</h2>
+        <div class="download-grid">
+            <div class="download-card fade-in">
+                <div class="platform-icon">🪟</div>
+                <h3 class="platform-name">Windows</h3>
+                <p class="platform-info" data-en="v0.2.2 • ~5MB<br>x86_64" data-zh="v0.2.2 • 约5MB<br>x86_64">v0.2.2 • ~5MB<br>x86_64</p>
+                <a href="https://github.com/wsyqn6/fastview/releases/latest" target="_blank" class="download-btn" data-en="Download for Windows" data-zh="Windows 版下载">Download for Windows</a>
+            </div>
+            <div class="download-card fade-in">
+                <div class="platform-icon">🐧</div>
+                <h3 class="platform-name">Linux</h3>
+                <p class="platform-info" data-en="v0.2.2 • ~5MB<br>x86_64" data-zh="v0.2.2 • 约5MB<br>x86_64">v0.2.2 • ~5MB<br>x86_64</p>
+                <a href="https://github.com/wsyqn6/fastview/releases/latest" target="_blank" class="download-btn" data-en="Download for Linux" data-zh="Linux 版下载">Download for Linux</a>
+            </div>
+            <div class="download-card fade-in">
+                <div class="platform-icon">🍎</div>
+                <h3 class="platform-name">macOS</h3>
+                <p class="platform-info" data-en="v0.2.2 • ~5MB<br>x86_64" data-zh="v0.2.2 • 约5MB<br>x86_64">v0.2.2 • ~5MB<br>x86_64</p>
+                <a href="https://github.com/wsyqn6/fastview/releases/latest" target="_blank" class="download-btn" data-en="Download for macOS" data-zh="macOS 版下载">Download for macOS</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Start Section -->
+    <section class="quick-start">
+        <h2 class="section-title fade-in" data-en="Quick Start" data-zh="快速开始">Quick Start</h2>
+        <div class="code-container fade-in">
+            <div class="code-header">
+                <span class="code-title" data-en="Build from Source" data-zh="从源码构建">Build from Source</span>
+                <button class="copy-btn" onclick="copyCode()" data-en="Copy" data-zh="复制">Copy</button>
+            </div>
+            <div class="code-block">
+                <span class="code-line"><span class="comment" data-en="# Clone the repository" data-zh="# 克隆仓库"># Clone the repository</span></span>
+                <span class="code-line"><span class="command">git clone https://github.com/wsyqn6/fastview.git</span></span>
+                <span class="code-line"><span class="command">cd fastview</span></span>
+                <span class="code-line"></span>
+                <span class="code-line"><span class="comment" data-en="# Build in release mode" data-zh="# 发布模式编译"># Build in release mode</span></span>
+                <span class="code-line"><span class="command">cargo build --release</span></span>
+                <span class="code-line"></span>
+                <span class="code-line"><span class="comment" data-en="# Run FastView" data-zh="# 运行 FastView"># Run FastView</span></span>
+                <span class="code-line"><span class="command">./target/release/fastview</span></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="https://github.com/wsyqn6/fastview" target="_blank" class="footer-link">GitHub</a>
+                <a href="https://github.com/wsyqn6/fastview/issues" target="_blank" class="footer-link" data-en="Issues" data-zh="问题反馈">Issues</a>
+                <a href="https://github.com/wsyqn6/fastview/blob/main/LICENSE" target="_blank" class="footer-link" data-en="License" data-zh="开源协议">License</a>
+            </div>
+            <p class="footer-text"><span data-en="Made with" data-zh="用">Made with</span> <span class="heart">❤</span> <span data-en="using Rust" data-zh="基于 Rust 打造">using Rust</span> • MIT License</p>
+            <p class="footer-text" style="margin-top: 0.5rem; font-size: 0.85rem;">© 2026 FastView Team</p>
+        </div>
+    </footer>
+
+    <!-- Performance: Scripts loaded at end of body for faster initial render -->
+    <script>
+        // Particle Background Animation
+        const canvas = document.getElementById('particle-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width, height;
+        let particles = [];
+        // Performance: Reduced particle count for better performance
+        const particleCount = 50;
+        const connectionDistance = 150;
+        
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        
+        class Particle {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.size = Math.random() * 2 + 1;
+                this.color = Math.random() > 0.5 ? '#00d4ff' : '#b829dd';
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                if (this.x < 0 || this.x > width) this.vx *= -1;
+                if (this.y < 0 || this.y > height) this.vy *= -1;
+            }
+            
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+            }
+        }
+        
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+        
+        function connectParticles() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < connectionDistance) {
+                        const opacity = (1 - distance / connectionDistance) * 0.3;
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(0, 212, 255, ${opacity})`;
+                        ctx.lineWidth = 1;
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        function animate() {
+            ctx.clearRect(0, 0, width, height);
+            
+            particles.forEach(particle => {
+                particle.update();
+                particle.draw();
+            });
+            
+            connectParticles();
+            // Performance: Use requestAnimationFrame for smooth 60fps animation
+            requestAnimationFrame(animate);
+        }
+        
+        // Performance: Defer particle initialization until after page load
+        window.addEventListener('load', () => {
+            resize();
+            initParticles();
+            animate();
+        });
+        
+        window.addEventListener('resize', () => {
+            resize();
+            initParticles();
+        });
+        
+        // Scroll Animation Observer
+        // Performance: Use requestIdleCallback for non-critical observers
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                    // Performance: Unobserve after animation to reduce overhead
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, observerOptions);
+        
+        document.querySelectorAll('.fade-in').forEach(el => {
+            observer.observe(el);
+        });
+        
+        // Copy Code Function
+        function copyCode() {
+            const code = `# Clone the repository
+git clone https://github.com/wsyqn6/fastview.git
+cd fastview
+
+# Build in release mode
+cargo build --release
+
+# Run FastView
+./target/release/fastview`;
+            
+            navigator.clipboard.writeText(code).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2000);
+            });
+        }
+        
+        // Smooth scroll for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+        
+        // Language Switching
+        let currentLang = localStorage.getItem('fastview-lang') || 'en';
+        
+        function toggleLanguage() {
+            const newLang = currentLang === 'en' ? 'zh' : 'en';
+            
+            // Add fade-out effect
+            document.body.classList.add('lang-fade-out');
+            
+            setTimeout(() => {
+                currentLang = newLang;
+                localStorage.setItem('fastview-lang', currentLang);
+                applyLanguage(currentLang);
+                
+                // Remove fade-out and add fade-in
+                document.body.classList.remove('lang-fade-out');
+            }, 300);
+        }
+        
+        function applyLanguage(lang) {
+            const elements = document.querySelectorAll('[data-en][data-zh]');
+            elements.forEach(el => {
+                el.classList.add('lang-transition');
+                const text = lang === 'en' ? el.getAttribute('data-en') : el.getAttribute('data-zh');
+                
+                // Handle HTML content (with <br> tags)
+                if (text.includes('<br>')) {
+                    el.innerHTML = text;
+                } else {
+                    el.textContent = text;
+                }
+            });
+            
+            // Update button text
+            const btn = document.querySelector('.lang-switcher');
+            btn.textContent = lang === 'en' ? '中文' : 'EN';
+            
+            // Update html lang attribute
+            document.documentElement.lang = lang === 'en' ? 'en' : 'zh-CN';
+        }
+        
+        // Performance: Defer language detection to avoid blocking initial render
+        function detectLanguage() {
+            const saved = localStorage.getItem('fastview-lang');
+            if (!saved) {
+                const browserLang = navigator.language || navigator.userLanguage;
+                if (browserLang.startsWith('zh')) {
+                    currentLang = 'zh';
+                    localStorage.setItem('fastview-lang', 'zh');
+                }
+            }
+        }
+        
+        requestAnimationFrame(() => {
+            detectLanguage();
+            applyLanguage(currentLang);
+        });
+    </script>
+</body>
+</html>

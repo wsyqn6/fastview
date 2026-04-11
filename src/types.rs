@@ -10,10 +10,10 @@ pub enum Language {
 
 impl Default for Language {
     fn default() -> Self {
-        if let Ok(lang) = std::env::var("LANG") {
-            if lang.starts_with("zh") || lang.starts_with("zh_CN") || lang.starts_with("zh_TW") {
-                return Language::Chinese;
-            }
+        if let Ok(lang) = std::env::var("LANG")
+            && (lang.starts_with("zh") || lang.starts_with("zh_CN") || lang.starts_with("zh_TW"))
+        {
+            return Language::Chinese;
         }
         Language::English
     }
