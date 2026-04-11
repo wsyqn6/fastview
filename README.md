@@ -3,7 +3,8 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.1.1--dev-blue.svg)](https://github.com/wsyqn6/fastview/releases)
+[![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)](https://github.com/wsyqn6/fastview/releases)
+[![Website](https://img.shields.io/badge/Website-wsyqn6.github.io/fastview-00d4ff)](https://wsyqn6.github.io/fastview)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg)](https://github.com/)
 
