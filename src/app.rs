@@ -503,6 +503,11 @@ impl FastViewApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.is_borderless));
     }
 
+    pub fn toggle_status_bar(&mut self) {
+        self.settings.show_status_bar = !self.settings.show_status_bar;
+        self.save_settings();
+    }
+
     /// 内存检查和淘汰(如果超出限制则移除最旧条目)
     fn evict_if_needed(
         &self,
@@ -1171,6 +1176,9 @@ impl eframe::App for FastViewApp {
                         egui::Key::V => {
                             self.toggle_borderless(ui.ctx());
                         }
+                        egui::Key::S => {
+                            self.toggle_status_bar();
+                        }
                         egui::Key::H => {
                             self.show_shortcuts = !self.show_shortcuts;
                             if self.show_shortcuts {
@@ -1308,28 +1316,35 @@ impl eframe::App for FastViewApp {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .collapsible(false)
                 .resizable(false)
-                .fixed_size([380.0, 420.0])
+                .fixed_size([480.0, 360.0]) // 稍微加宽，高度更紧凑
                 .title_bar(true)
                 .show(ui.ctx(), |ui| {
                     let visuals = &ui.ctx().global_style().visuals;
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
 
-                    // 辅助函数：创建键盘按键样式
+                    // 辅助函数：创建更具质感的键盘按键样式
                     let key_badge = |ui: &mut egui::Ui, key: &str| {
-                        let button_color = visuals.selection.bg_fill.gamma_multiply(0.15);
-                        let border_color = visuals.selection.bg_fill.gamma_multiply(0.3);
+                        let bg_color = visuals.widgets.noninteractive.bg_fill;
+                        let stroke_color = visuals.widgets.noninteractive.bg_stroke.color;
+                        let text_color = visuals.text_color();
 
                         egui::Frame::NONE
-                            .fill(button_color)
-                            .stroke(egui::Stroke::new(1.0, border_color))
-                            .corner_radius(6.0)
-                            .inner_margin(egui::Margin::symmetric(8, 3))
+                            .fill(bg_color)
+                            .stroke(egui::Stroke::new(1.0, stroke_color))
+                            .shadow(egui::epaint::Shadow {
+                                offset: [0, 2],
+                                blur: 0,
+                                spread: 0,
+                                color: stroke_color.gamma_multiply(0.5),
+                            })
+                            .corner_radius(4.0)
+                            .inner_margin(egui::Margin::symmetric(6, 2))
                             .show(ui, |ui| {
                                 ui.label(
                                     egui::RichText::new(key)
                                         .family(egui::FontFamily::Monospace)
                                         .size(11.0)
-                                        .strong(),
+                                        .color(text_color),
                                 );
                             });
                     };
@@ -1337,17 +1352,17 @@ impl eframe::App for FastViewApp {
                     // 辅助函数：创建快捷键行
                     let shortcut_row = |ui: &mut egui::Ui, keys: &[&str], desc: &str| {
                         ui.horizontal(|ui| {
-                            ui.add_space(8.0);
+                            ui.add_space(4.0);
                             for (i, key) in keys.iter().enumerate() {
                                 if i > 0 {
-                                    ui.add_space(2.0);
+                                    ui.label(egui::RichText::new("+").size(10.0).weak());
                                 }
                                 key_badge(ui, key);
                             }
-                            ui.add_space(12.0);
+                            ui.add_space(8.0);
                             ui.label(
                                 egui::RichText::new(desc)
-                                    .size(12.0)
+                                    .size(11.0)
                                     .color(visuals.weak_text_color()),
                             );
                         });
@@ -1356,46 +1371,49 @@ impl eframe::App for FastViewApp {
 
                     // 分组标题
                     let section_title = |ui: &mut egui::Ui, title: &str| {
-                        ui.add_space(8.0);
+                        ui.add_space(6.0);
                         ui.label(
-                            egui::RichText::new(title.to_uppercase())
-                                .size(10.0)
-                                .color(visuals.weak_text_color()),
+                            egui::RichText::new(title)
+                                .size(11.0)
+                                .strong()
+                                .color(visuals.text_color()),
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                     };
 
-                    // 导航部分
-                    section_title(ui, navigation_text);
-                    shortcut_row(ui, &["←", "→"], TextKey::PreviousNext.text(lang));
-                    shortcut_row(ui, &["Space"], TextKey::DragMode.text(lang));
+                    // 双列布局
+                    ui.columns(2, |columns| {
+                        // 左列
+                        columns[0].with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            section_title(ui, navigation_text);
+                            shortcut_row(ui, &["←", "→"], TextKey::PreviousNext.text(lang));
+                            shortcut_row(ui, &["Space"], TextKey::DragMode.text(lang));
+                            
+                            ui.add_space(8.0);
+                            section_title(ui, zoom_view_text);
+                            shortcut_row(ui, &["+", "-"], TextKey::ZoomInOut.text(lang));
+                            shortcut_row(ui, &["0"], TextKey::FitToWindow.text(lang));
+                            shortcut_row(ui, &["1"], TextKey::OriginalSize.text(lang));
+                            shortcut_row(ui, &["2"], TextKey::FillWindow.text(lang));
+                        });
 
-                    ui.separator();
+                        // 右列
+                        columns[1].with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            section_title(ui, rotation_text);
+                            shortcut_row(ui, &["R"], TextKey::RotateLeft.text(lang));
+                            shortcut_row(ui, &["Shift", "R"], TextKey::RotateRight.text(lang));
+                            
+                            ui.add_space(8.0);
+                            section_title(ui, system_text);
+                            shortcut_row(ui, &["F"], TextKey::ToggleFullscreen.text(lang));
+                            shortcut_row(ui, &["V"], TextKey::ToggleBorderless.text(lang));
+                            shortcut_row(ui, &["S"], TextKey::ToggleStatusBar.text(lang));
+                            shortcut_row(ui, &["Esc"], TextKey::ExitFullscreen.text(lang));
+                            shortcut_row(ui, &["H", "?"], TextKey::ShowHideShortcuts.text(lang));
+                        });
+                    });
 
-                    // 缩放部分
-                    section_title(ui, zoom_view_text);
-                    shortcut_row(ui, &["+", "-"], TextKey::ZoomInOut.text(lang));
-                    shortcut_row(ui, &["0"], TextKey::FitToWindow.text(lang));
-                    shortcut_row(ui, &["1"], TextKey::OriginalSize.text(lang));
-                    shortcut_row(ui, &["2"], TextKey::FillWindow.text(lang));
-
-                    ui.separator();
-
-                    // 旋转部分
-                    section_title(ui, rotation_text);
-                    shortcut_row(ui, &["R"], TextKey::RotateLeft.text(lang));
-                    shortcut_row(ui, &["Shift", "R"], TextKey::RotateRight.text(lang));
-
-                    ui.separator();
-
-                    // 系统部分
-                    section_title(ui, system_text);
-                    shortcut_row(ui, &["F"], TextKey::ToggleFullscreen.text(lang));
-                    shortcut_row(ui, &["V"], TextKey::ToggleBorderless.text(lang));
-                    shortcut_row(ui, &["Esc"], TextKey::ExitFullscreen.text(lang));
-                    shortcut_row(ui, &["H", "?"], TextKey::ShowHideShortcuts.text(lang));
-
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                 });
         }
 

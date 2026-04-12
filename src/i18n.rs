@@ -26,6 +26,7 @@ pub enum TextKey {
     RotateCounterClockwise,
     ToggleFullscreen,
     ToggleBorderless,
+    ToggleStatusBar,
 
     // Help menu
     ShortcutsHelp,
@@ -95,6 +96,7 @@ impl TextKey {
             TextKey::RotateCounterClockwise => "逆时针旋转",
             TextKey::ToggleFullscreen => "切换全屏",
             TextKey::ToggleBorderless => "无边框模式",
+            TextKey::ToggleStatusBar => "切换状态栏",
             TextKey::ShortcutsHelp => "快捷键",
             TextKey::AboutFastView => "关于 FastView",
             TextKey::CheckForUpdates => "检查更新...",
@@ -146,6 +148,7 @@ impl TextKey {
             TextKey::RotateCounterClockwise => "Rotate Counter-Clockwise",
             TextKey::ToggleFullscreen => "Toggle Fullscreen",
             TextKey::ToggleBorderless => "Borderless Mode",
+            TextKey::ToggleStatusBar => "Toggle Status Bar",
             TextKey::ShortcutsHelp => "Shortcuts",
             TextKey::AboutFastView => "About FastView",
             TextKey::CheckForUpdates => "Check for Updates...",
