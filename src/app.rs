@@ -209,11 +209,7 @@ impl FastViewApp {
             [thumb_w as usize, thumb_h as usize],
             thumb_img.as_raw(),
         );
-        Some(ctx.load_texture(
-            &thumb_texture_id,
-            color_image,
-            egui::TextureOptions::LINEAR,
-        ))
+        Some(ctx.load_texture(&thumb_texture_id, color_image, egui::TextureOptions::LINEAR))
     }
 
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
@@ -597,20 +593,24 @@ impl eframe::App for FastViewApp {
         // 全屏模式下的 UI 自动隐藏逻辑
         if self.is_fullscreen {
             let pointer_delta = ui.input(|i| i.pointer.delta());
-            let any_motion = pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
-            
+            let any_motion =
+                pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
+
             if any_motion {
                 self.last_mouse_move = Instant::now();
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
             } else {
                 let elapsed = self.last_mouse_move.elapsed().as_secs_f32();
                 if elapsed > 3.0 {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
                 }
             }
         } else {
             // 非全屏模式下确保光标始终可见
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
         }
 
         // 菜单栏显示逻辑：仅在全屏模式下不显示，其他情况根据无边框设置决定
@@ -968,9 +968,12 @@ impl eframe::App for FastViewApp {
                             ui.set_max_width(max_width);
 
                             // 使用 horizontal 布局，内容垂直居中对齐
-                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                render_status_content(ui, visuals, self);
-                            });
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    render_status_content(ui, visuals, self);
+                                },
+                            );
                         });
                 });
         }
@@ -1087,7 +1090,7 @@ impl eframe::App for FastViewApp {
                     // 显示缩略图导航（只要需要导航就显示，不依赖拖动模式）
                     if need_navigation && let Some(ref thumb_tex) = self.thumbnail_texture {
                         let img_ratio = self.image_size.x / self.image_size.y;
-                        
+
                         // 缩略图尺寸：保持宽高比，最大边120px
                         let max_thumb_size = 120.0;
                         let (thumb_w, thumb_h) = if img_ratio > 1.0 {
@@ -1096,71 +1099,96 @@ impl eframe::App for FastViewApp {
                             (max_thumb_size * img_ratio, max_thumb_size)
                         };
                         let thumb_size = egui::vec2(thumb_w, thumb_h);
-                        
+
                         // 使用 Area 创建悬浮缩略图
                         egui::Area::new(egui::Id::new("thumbnail_navigator"))
                             .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -16.0]) // 右下角，距离边缘16px
                             .show(ui.ctx(), |ui| {
                                 // 绘制缩略图并获取其位置
-                                let mut thumb_image = egui::Image::new((thumb_tex.id(), thumb_size));
+                                let mut thumb_image =
+                                    egui::Image::new((thumb_tex.id(), thumb_size));
                                 if self.rotation != 0.0 {
                                     let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
-                                    thumb_image = thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
+                                    thumb_image =
+                                        thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
                                 }
                                 let response = ui.add(thumb_image);
-                                
+
                                 // 获取缩略图的中心位置
                                 let thumb_center = response.rect.center();
-                                
+
                                 // 计算视口指示器在未旋转缩略图上的位置和大小
                                 // 可视区域占图片的比例
                                 let view_portion_x = (available.x / size.x).min(1.0);
                                 let view_portion_y = (available.y / size.y).min(1.0);
-                                
+
                                 // 在未旋转的缩略图上，红框的大小
                                 let view_rect_w = thumb_size.x * view_portion_x;
                                 let view_rect_h = thumb_size.y * view_portion_y;
-                                
+
                                 // 计算当前滚动位置的相对偏移
-                                let offset_ratio_x = (-self.image_offset.x / size.x + 0.5).clamp(0.0, 1.0);
-                                let offset_ratio_y = (-self.image_offset.y / size.y + 0.5).clamp(0.0, 1.0);
-                                
+                                let offset_ratio_x =
+                                    (-self.image_offset.x / size.x + 0.5).clamp(0.0, 1.0);
+                                let offset_ratio_y =
+                                    (-self.image_offset.y / size.y + 0.5).clamp(0.0, 1.0);
+
                                 // 在未旋转的缩略图上，红框的左上角位置（相对于缩略图中心）
-                                let unrotated_view_x = (thumb_size.x - view_rect_w) * offset_ratio_x - thumb_size.x / 2.0;
-                                let unrotated_view_y = (thumb_size.y - view_rect_h) * offset_ratio_y - thumb_size.y / 2.0;
-                                
+                                let unrotated_view_x = (thumb_size.x - view_rect_w)
+                                    * offset_ratio_x
+                                    - thumb_size.x / 2.0;
+                                let unrotated_view_y = (thumb_size.y - view_rect_h)
+                                    * offset_ratio_y
+                                    - thumb_size.y / 2.0;
+
                                 // 如果缩略图旋转了，需要将红框的四个角点旋转相同的角度
                                 if self.rotation != 0.0 {
                                     let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
                                     let cos_a = angle_rad.cos();
                                     let sin_a = angle_rad.sin();
-                                    
+
                                     // 红框的四个角点（相对于缩略图中心）
                                     let corners = [
                                         egui::vec2(unrotated_view_x, unrotated_view_y),
-                                        egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y),
-                                        egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y + view_rect_h),
-                                        egui::vec2(unrotated_view_x, unrotated_view_y + view_rect_h),
+                                        egui::vec2(
+                                            unrotated_view_x + view_rect_w,
+                                            unrotated_view_y,
+                                        ),
+                                        egui::vec2(
+                                            unrotated_view_x + view_rect_w,
+                                            unrotated_view_y + view_rect_h,
+                                        ),
+                                        egui::vec2(
+                                            unrotated_view_x,
+                                            unrotated_view_y + view_rect_h,
+                                        ),
                                     ];
-                                    
+
                                     // 旋转四个角点
-                                    let rotated_corners: Vec<egui::Pos2> = corners.iter().map(|p| {
-                                        let rx = p.x * cos_a - p.y * sin_a;
-                                        let ry = p.x * sin_a + p.y * cos_a;
-                                        thumb_center + egui::vec2(rx, ry)
-                                    }).collect();
-                                    
+                                    let rotated_corners: Vec<egui::Pos2> = corners
+                                        .iter()
+                                        .map(|p| {
+                                            let rx = p.x * cos_a - p.y * sin_a;
+                                            let ry = p.x * sin_a + p.y * cos_a;
+                                            thumb_center + egui::vec2(rx, ry)
+                                        })
+                                        .collect();
+
                                     // 绘制旋转后的红框（四条线段）
                                     for i in 0..4 {
                                         let start = rotated_corners[i];
                                         let end = rotated_corners[(i + 1) % 4];
-                                        
+
                                         // 外层红色线条
                                         ui.painter().line_segment(
                                             [start, end],
-                                            egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(255, 80, 80, 230)),
+                                            egui::Stroke::new(
+                                                2.0,
+                                                egui::Color32::from_rgba_unmultiplied(
+                                                    255, 80, 80, 230,
+                                                ),
+                                            ),
                                         );
-                                        
+
                                         // 内层白色线条（稍微向内收缩）
                                         let dir = (end - start).normalized();
                                         let perp = egui::vec2(-dir.y, dir.x); // 垂直方向
@@ -1168,32 +1196,41 @@ impl eframe::App for FastViewApp {
                                         let inner_end = end.to_vec2() + perp * 0.5;
                                         ui.painter().line_segment(
                                             [inner_start.to_pos2(), inner_end.to_pos2()],
-                                            egui::Stroke::new(1.0, egui::Color32::WHITE.gamma_multiply(0.8)),
+                                            egui::Stroke::new(
+                                                1.0,
+                                                egui::Color32::WHITE.gamma_multiply(0.8),
+                                            ),
                                         );
                                     }
                                 } else {
                                     // 未旋转时，直接绘制矩形
                                     let view_rect_x = thumb_center.x + unrotated_view_x;
                                     let view_rect_y = thumb_center.y + unrotated_view_y;
-                                    
+
                                     let indicator_rect = egui::Rect::from_min_size(
                                         egui::Pos2::new(view_rect_x, view_rect_y),
                                         egui::vec2(view_rect_w, view_rect_h),
                                     );
-                                    
+
                                     // 外层红色边框
                                     ui.painter().rect_stroke(
                                         indicator_rect,
                                         2.0,
-                                        egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(255, 80, 80, 230)),
+                                        egui::Stroke::new(
+                                            2.0,
+                                            egui::Color32::from_rgba_unmultiplied(255, 80, 80, 230),
+                                        ),
                                         egui::StrokeKind::Inside,
                                     );
-                                    
+
                                     // 内层白色边框
                                     ui.painter().rect_stroke(
                                         indicator_rect.shrink(1.0),
                                         1.0,
-                                        egui::Stroke::new(1.0, egui::Color32::WHITE.gamma_multiply(0.8)),
+                                        egui::Stroke::new(
+                                            1.0,
+                                            egui::Color32::WHITE.gamma_multiply(0.8),
+                                        ),
                                         egui::StrokeKind::Inside,
                                     );
                                 }
@@ -1514,7 +1551,7 @@ impl eframe::App for FastViewApp {
                             section_title(ui, navigation_text);
                             shortcut_row(ui, &["←", "→"], TextKey::PreviousNext.text(lang));
                             shortcut_row(ui, &["Space"], TextKey::DragMode.text(lang));
-                            
+
                             ui.add_space(8.0);
                             section_title(ui, zoom_view_text);
                             shortcut_row(ui, &["+", "-"], TextKey::ZoomInOut.text(lang));
@@ -1528,7 +1565,7 @@ impl eframe::App for FastViewApp {
                             section_title(ui, rotation_text);
                             shortcut_row(ui, &["R"], TextKey::RotateLeft.text(lang));
                             shortcut_row(ui, &["Shift", "R"], TextKey::RotateRight.text(lang));
-                            
+
                             ui.add_space(8.0);
                             section_title(ui, system_text);
                             shortcut_row(ui, &["F"], TextKey::ToggleFullscreen.text(lang));
@@ -1603,8 +1640,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         ui.scope(|ui| {
             ui.set_max_width(200.0);
             let response = ui.add(
-                egui::Label::new(egui::RichText::new(&filename).strong().size(12.0))
-                    .truncate()
+                egui::Label::new(egui::RichText::new(&filename).strong().size(12.0)).truncate(),
             );
             // 确保悬浮时鼠标图标不变
             if response.hovered() {
@@ -1661,11 +1697,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         visuals.weak_text_color()
     };
 
-    ui.label(
-        egui::RichText::new(&zoom_text)
-            .size(10.0)
-            .color(zoom_color),
-    );
+    ui.label(egui::RichText::new(&zoom_text).size(10.0).color(zoom_color));
 
     // 旋转角度
     if app.rotation != 0.0 {
