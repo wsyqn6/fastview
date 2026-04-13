@@ -60,6 +60,10 @@ pub struct FastViewApp {
     cmd_tx: Option<std::sync::mpsc::Sender<LoadCommand>>,
     result_rx: Option<std::sync::mpsc::Receiver<LoadResult>>,
     loader_handle: Option<std::thread::JoinHandle<()>>,
+
+    // UI 自动隐藏逻辑
+    last_mouse_move: std::time::Instant,
+    is_ui_visible: bool, // 控制全屏下菜单栏和状态栏的可见性
 }
 
 impl Default for FastViewApp {
@@ -93,6 +97,8 @@ impl Default for FastViewApp {
             cmd_tx: None,
             result_rx: None,
             loader_handle: None,
+            last_mouse_move: Instant::now(),
+            is_ui_visible: true,
         }
     }
 }
@@ -176,6 +182,40 @@ impl FastViewApp {
         }
     }
 
+    /// 创建缩略图纹理
+    fn create_thumbnail(
+        &self,
+        image: &crate::types::DecodedImage,
+        ctx: &egui::Context,
+        path: &PathBuf,
+    ) -> Option<egui::TextureHandle> {
+        use image::imageops::thumbnail;
+
+        // 缩略图最大尺寸
+        let max_thumb_size = 200;
+
+        // 计算缩略图尺寸（保持宽高比）
+        let scale = (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
+        let thumb_w = (image.width as f32 * scale) as u32;
+        let thumb_h = (image.height as f32 * scale) as u32;
+
+        // 生成缩略图
+        let img = image::RgbaImage::from_raw(image.width, image.height, image.data.clone())?;
+        let thumb_img = thumbnail(&img, thumb_w, thumb_h);
+
+        // 创建纹理
+        let thumb_texture_id = format!("thumb_{:?}", path.file_name());
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+            [thumb_w as usize, thumb_h as usize],
+            thumb_img.as_raw(),
+        );
+        Some(ctx.load_texture(
+            &thumb_texture_id,
+            color_image,
+            egui::TextureOptions::LINEAR,
+        ))
+    }
+
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
         // 1. 优先检查缓存
         if let Some(cached) = {
@@ -219,6 +259,9 @@ impl FastViewApp {
             elapsed_ms() as f64 / 1000.0,
             texture_id
         );
+
+        // 创建缩略图
+        self.thumbnail_texture = self.create_thumbnail(&image, ctx, path);
 
         // 显示图片
         self.texture = Some(texture);
@@ -495,6 +538,14 @@ impl FastViewApp {
 
     pub fn toggle_fullscreen(&mut self, ctx: &egui::Context) {
         self.is_fullscreen = !self.is_fullscreen;
+        if self.is_fullscreen {
+            self.is_ui_visible = false;
+            // 立即隐藏光标
+            ctx.send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
+        } else {
+            self.is_ui_visible = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
+        }
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
     }
 
@@ -543,8 +594,29 @@ impl FastViewApp {
 
 impl eframe::App for FastViewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // 全屏或无边框模式时隐藏菜单栏，提升沉浸体验
-        if !self.is_fullscreen && !self.is_borderless {
+        // 全屏模式下的 UI 自动隐藏逻辑
+        if self.is_fullscreen {
+            let pointer_delta = ui.input(|i| i.pointer.delta());
+            let any_motion = pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
+            
+            if any_motion {
+                self.last_mouse_move = Instant::now();
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
+            } else {
+                let elapsed = self.last_mouse_move.elapsed().as_secs_f32();
+                if elapsed > 3.0 {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
+                }
+            }
+        } else {
+            // 非全屏模式下确保光标始终可见
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
+        }
+
+        // 菜单栏显示逻辑：仅在全屏模式下不显示，其他情况根据无边框设置决定
+        let should_show_menu = !self.is_fullscreen && !self.is_borderless;
+
+        if should_show_menu {
             // 传统菜单栏（类似 Windows 原生应用）
             egui::Panel::top("menu_bar")
                 .exact_size(24.0)
@@ -740,6 +812,9 @@ impl eframe::App for FastViewApp {
                                 texture_id
                             );
 
+                            // 创建缩略图（在存入缓存之前）
+                            let thumbnail = self.create_thumbnail(&image, ui.ctx(), &path);
+
                             // 存入缓存
                             {
                                 let mut cache_guard = self.image_cache.lock().unwrap();
@@ -750,6 +825,9 @@ impl eframe::App for FastViewApp {
 
                                 cache_guard.put(path.clone(), CacheEntry::Decoded(image));
                             }
+
+                            // 设置缩略图
+                            self.thumbnail_texture = thumbnail;
 
                             // 应用到当前显示
                             eprintln!(
@@ -860,9 +938,9 @@ impl eframe::App for FastViewApp {
         }
 
         // Status bar - 悬浮半透明设计
+        // 显示条件：设置开启 + 非全屏模式
         if self.settings.show_status_bar && !self.is_fullscreen {
             let screen_rect = ui.ctx().content_rect();
-            let status_height = 28.0;
 
             egui::Area::new(egui::Id::new("floating_status_bar"))
                 .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -12.0]) // 底部居中，距离底部12px
@@ -883,16 +961,14 @@ impl eframe::App for FastViewApp {
                             spread: 0,
                             color: egui::Color32::BLACK.gamma_multiply(0.15),
                         })
-                        .inner_margin(egui::Margin::symmetric(14, 3)) // 左右14px, 上下3px
+                        .inner_margin(egui::Margin::symmetric(14, 8)) // 左右14px, 上下8px（提供足够垂直空间）
                         .show(ui, |ui| {
                             // 计算最大宽度限制（避免过宽）
                             let max_width = (screen_rect.width() * 0.9).min(800.0);
                             ui.set_max_width(max_width);
-                            ui.set_min_height(status_height - 12.0);
 
-                            // 使用 horizontal 布局，内容自适应宽度
-                            // Area 已通过 anchor 居中，所以内容会自动居中显示
-                            ui.horizontal(|ui| {
+                            // 使用 horizontal 布局，内容垂直居中对齐
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                                 render_status_content(ui, visuals, self);
                             });
                         });
@@ -1011,67 +1087,117 @@ impl eframe::App for FastViewApp {
                     // 显示缩略图导航（只要需要导航就显示，不依赖拖动模式）
                     if need_navigation && let Some(ref thumb_tex) = self.thumbnail_texture {
                         let img_ratio = self.image_size.x / self.image_size.y;
+                        
+                        // 缩略图尺寸：保持宽高比，最大边120px
+                        let max_thumb_size = 120.0;
                         let (thumb_w, thumb_h) = if img_ratio > 1.0 {
-                            (160.0, 160.0 / img_ratio)
+                            (max_thumb_size, max_thumb_size / img_ratio)
                         } else {
-                            (120.0 * img_ratio, 120.0)
+                            (max_thumb_size * img_ratio, max_thumb_size)
                         };
                         let thumb_size = egui::vec2(thumb_w, thumb_h);
-                        let screen_rect = ui.ctx().content_rect();
-                        let thumb_pos = egui::Pos2::new(
-                            screen_rect.right() - thumb_size.x - 10.0,
-                            screen_rect.bottom() - thumb_size.y - 10.0,
-                        );
-                        let thumb_rect = egui::Rect::from_min_size(thumb_pos, thumb_size);
-
-                        let mut thumb_image = egui::Image::new((thumb_tex.id(), thumb_size));
-                        if self.rotation != 0.0 {
-                            let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
-                            thumb_image = thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
-                        }
-                        ui.put(thumb_rect, thumb_image);
-
-                        // 计算红框：映射可视区域到缩略图
-                        // 1. 使用已经计算好的缩放后图片尺寸（考虑旋转）
-                        let (scaled_w, scaled_h) = if self.rotation % 180.0 == 0.0 {
-                            (size.x, size.y)
-                        } else {
-                            (size.y, size.x)
-                        };
-
-                        // 2. 计算图片左上角相对于可视区域中心的位置
-                        let image_left = center.x + self.image_offset.x - size.x / 2.0;
-                        let image_top = center.y + self.image_offset.y - size.y / 2.0;
-
-                        // 3. 计算可视区域在图片上的相对位置 (0.0 - 1.0)
-                        let view_ratio_x = if scaled_w > available.x {
-                            (-image_left / (scaled_w - available.x)).clamp(0.0, 1.0)
-                        } else {
-                            0.5 // 图片完全显示，居中
-                        };
-                        let view_ratio_y = if scaled_h > available.y {
-                            (-image_top / (scaled_h - available.y)).clamp(0.0, 1.0)
-                        } else {
-                            0.5 // 图片完全显示，居中
-                        };
-
-                        // 4. 计算红框大小（可视区域占图片的比例）
-                        let view_rect_w = (thumb_size.x * available.x / scaled_w).min(thumb_size.x);
-                        let view_rect_h = (thumb_size.y * available.y / scaled_h).min(thumb_size.y);
-
-                        // 5. 计算红框位置
-                        let view_rect_x = thumb_pos.x + (thumb_size.x - view_rect_w) * view_ratio_x;
-                        let view_rect_y = thumb_pos.y + (thumb_size.y - view_rect_h) * view_ratio_y;
-
-                        ui.painter().rect_stroke(
-                            egui::Rect::from_min_size(
-                                egui::Pos2::new(view_rect_x, view_rect_y),
-                                egui::vec2(view_rect_w, view_rect_h),
-                            ),
-                            2.0,
-                            egui::Stroke::new(2.0, egui::Color32::RED),
-                            egui::StrokeKind::Inside,
-                        );
+                        
+                        // 使用 Area 创建悬浮缩略图
+                        egui::Area::new(egui::Id::new("thumbnail_navigator"))
+                            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -16.0]) // 右下角，距离边缘16px
+                            .show(ui.ctx(), |ui| {
+                                // 绘制缩略图并获取其位置
+                                let mut thumb_image = egui::Image::new((thumb_tex.id(), thumb_size));
+                                if self.rotation != 0.0 {
+                                    let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
+                                    thumb_image = thumb_image.rotate(angle_rad, egui::Vec2::splat(0.5));
+                                }
+                                let response = ui.add(thumb_image);
+                                
+                                // 获取缩略图的中心位置
+                                let thumb_center = response.rect.center();
+                                
+                                // 计算视口指示器在未旋转缩略图上的位置和大小
+                                // 可视区域占图片的比例
+                                let view_portion_x = (available.x / size.x).min(1.0);
+                                let view_portion_y = (available.y / size.y).min(1.0);
+                                
+                                // 在未旋转的缩略图上，红框的大小
+                                let view_rect_w = thumb_size.x * view_portion_x;
+                                let view_rect_h = thumb_size.y * view_portion_y;
+                                
+                                // 计算当前滚动位置的相对偏移
+                                let offset_ratio_x = (-self.image_offset.x / size.x + 0.5).clamp(0.0, 1.0);
+                                let offset_ratio_y = (-self.image_offset.y / size.y + 0.5).clamp(0.0, 1.0);
+                                
+                                // 在未旋转的缩略图上，红框的左上角位置（相对于缩略图中心）
+                                let unrotated_view_x = (thumb_size.x - view_rect_w) * offset_ratio_x - thumb_size.x / 2.0;
+                                let unrotated_view_y = (thumb_size.y - view_rect_h) * offset_ratio_y - thumb_size.y / 2.0;
+                                
+                                // 如果缩略图旋转了，需要将红框的四个角点旋转相同的角度
+                                if self.rotation != 0.0 {
+                                    let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
+                                    let cos_a = angle_rad.cos();
+                                    let sin_a = angle_rad.sin();
+                                    
+                                    // 红框的四个角点（相对于缩略图中心）
+                                    let corners = [
+                                        egui::vec2(unrotated_view_x, unrotated_view_y),
+                                        egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y),
+                                        egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y + view_rect_h),
+                                        egui::vec2(unrotated_view_x, unrotated_view_y + view_rect_h),
+                                    ];
+                                    
+                                    // 旋转四个角点
+                                    let rotated_corners: Vec<egui::Pos2> = corners.iter().map(|p| {
+                                        let rx = p.x * cos_a - p.y * sin_a;
+                                        let ry = p.x * sin_a + p.y * cos_a;
+                                        thumb_center + egui::vec2(rx, ry)
+                                    }).collect();
+                                    
+                                    // 绘制旋转后的红框（四条线段）
+                                    for i in 0..4 {
+                                        let start = rotated_corners[i];
+                                        let end = rotated_corners[(i + 1) % 4];
+                                        
+                                        // 外层红色线条
+                                        ui.painter().line_segment(
+                                            [start, end],
+                                            egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(255, 80, 80, 230)),
+                                        );
+                                        
+                                        // 内层白色线条（稍微向内收缩）
+                                        let dir = (end - start).normalized();
+                                        let perp = egui::vec2(-dir.y, dir.x); // 垂直方向
+                                        let inner_start = start.to_vec2() + perp * 0.5;
+                                        let inner_end = end.to_vec2() + perp * 0.5;
+                                        ui.painter().line_segment(
+                                            [inner_start.to_pos2(), inner_end.to_pos2()],
+                                            egui::Stroke::new(1.0, egui::Color32::WHITE.gamma_multiply(0.8)),
+                                        );
+                                    }
+                                } else {
+                                    // 未旋转时，直接绘制矩形
+                                    let view_rect_x = thumb_center.x + unrotated_view_x;
+                                    let view_rect_y = thumb_center.y + unrotated_view_y;
+                                    
+                                    let indicator_rect = egui::Rect::from_min_size(
+                                        egui::Pos2::new(view_rect_x, view_rect_y),
+                                        egui::vec2(view_rect_w, view_rect_h),
+                                    );
+                                    
+                                    // 外层红色边框
+                                    ui.painter().rect_stroke(
+                                        indicator_rect,
+                                        2.0,
+                                        egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(255, 80, 80, 230)),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    
+                                    // 内层白色边框
+                                    ui.painter().rect_stroke(
+                                        indicator_rect.shrink(1.0),
+                                        1.0,
+                                        egui::Stroke::new(1.0, egui::Color32::WHITE.gamma_multiply(0.8)),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                }
+                            });
                     }
                 } else if self.current_path.is_some() {
                     // Loading 状态:显示缩略图或加载指示器
@@ -1460,23 +1586,33 @@ impl eframe::App for FastViewApp {
 
 /// 渲染状态栏内容的辅助函数
 fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastViewApp) {
-    // 文件名（加粗，带最大宽度限制）
-    if let Some(ref path) = app.current_path {
-        let filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy())
-            .unwrap_or_default();
-
-        // 限制文件名最大宽度为 150px，超出部分显示省略号
-        ui.add_sized(
-            [150.0, 16.0],
-            egui::Label::new(egui::RichText::new(filename).strong().size(12.0)).truncate(),
-        );
-
-        // 自定义分隔符
+    // 辅助函数：添加分隔符（带间距）
+    let separator = |ui: &mut egui::Ui| {
         ui.add_space(8.0);
         ui.separator();
         ui.add_space(8.0);
+    };
+
+    // 文件名（12号加粗，最大宽度200px，超出截断）
+    if let Some(ref path) = app.current_path {
+        let filename = path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        ui.scope(|ui| {
+            ui.set_max_width(200.0);
+            let response = ui.add(
+                egui::Label::new(egui::RichText::new(&filename).strong().size(12.0))
+                    .truncate()
+            );
+            // 确保悬浮时鼠标图标不变
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+            }
+        });
+
+        separator(ui);
 
         // 图片尺寸（等宽字体）
         ui.label(
@@ -1489,9 +1625,7 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
             .color(visuals.weak_text_color()),
         );
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+        separator(ui);
     }
 
     // 图片索引
@@ -1504,12 +1638,10 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
             ))
             .size(10.0),
         );
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+        separator(ui);
     }
 
-    // 缩放模式（使用徽章样式）
+    // 缩放模式（仅 Custom 模式根据比例显示颜色）
     let zoom_text = match app.zoom_mode {
         ZoomMode::Fit => app.t(TextKey::Fit).to_string(),
         ZoomMode::Fill => app.t(TextKey::Fill).to_string(),
@@ -1517,37 +1649,27 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         ZoomMode::Custom => format!("{}%", (app.zoom * 100.0) as u32),
     };
 
-    // 根据缩放模式使用不同的视觉样式
-    if app.zoom_mode == ZoomMode::Custom {
-        // Custom 模式：使用醒目的橙色/金色徽章
-        let badge_bg = egui::Color32::from_rgb(255, 165, 0).gamma_multiply(0.2); // 橙色背景 20% 透明度
-        let badge_text = egui::Color32::from_rgb(255, 140, 0); // 深橙色文字
-        egui::Frame::NONE
-            .fill(badge_bg)
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(6, 2))
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(&zoom_text)
-                        .size(10.0)
-                        .strong() // 加粗增强可读性
-                        .color(badge_text),
-                );
-            });
+    let zoom_color = if app.zoom_mode == ZoomMode::Custom {
+        if app.zoom > 1.0 {
+            egui::Color32::from_rgb(255, 140, 0)
+        } else if app.zoom < 1.0 {
+            egui::Color32::from_rgb(100, 149, 237)
+        } else {
+            visuals.weak_text_color()
+        }
     } else {
-        // 标准模式：使用弱文本颜色
-        ui.label(
-            egui::RichText::new(&zoom_text)
-                .size(10.0)
-                .color(visuals.weak_text_color()),
-        );
-    }
+        visuals.weak_text_color()
+    };
+
+    ui.label(
+        egui::RichText::new(&zoom_text)
+            .size(10.0)
+            .color(zoom_color),
+    );
 
     // 旋转角度
     if app.rotation != 0.0 {
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+        separator(ui);
         ui.label(
             egui::RichText::new(format!("{}°", app.rotation as u32))
                 .size(10.0)
@@ -1555,15 +1677,11 @@ fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastV
         );
     }
 
-    // 文件大小显示
+    // 文件大小
     if app.file_size > 0 {
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
-
-        let size_text = app.format_file_size(app.file_size);
+        separator(ui);
         ui.label(
-            egui::RichText::new(size_text)
+            egui::RichText::new(app.format_file_size(app.file_size))
                 .size(10.0)
                 .family(egui::FontFamily::Monospace)
                 .color(visuals.weak_text_color()),
