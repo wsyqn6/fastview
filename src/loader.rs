@@ -354,15 +354,10 @@ fn decode_image_file(
     let file = File::open(path)?;
     let reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
 
-    // 解码图片
-    let mut img = reader
+    // 解码图片（image 库自动处理 EXIF 方向）
+    let img = reader
         .decode()
         .map_err(|e| format!("Decode error: {}", e))?;
-
-    // 应用 EXIF 方向
-    if let Ok(exif_orientation) = read_exif_orientation(path) {
-        img.apply_orientation(exif_orientation);
-    }
 
     let rgba = img.into_rgba8();
     let (width, height) = rgba.dimensions();
@@ -375,101 +370,3 @@ fn decode_image_file(
     })
 }
 
-/// 简化的 EXIF 方向读取（只处理 JPEG）
-fn read_exif_orientation(
-    path: &PathBuf,
-) -> Result<image::metadata::Orientation, Box<dyn std::error::Error>> {
-    use std::fs;
-
-    let data = fs::read(path)?;
-
-    // 查找 APP1 marker (0xFFE1) 包含 EXIF 数据
-    let mut i = 2; // 跳过 SOI (0xFFD8)
-    while i < data.len() - 1 {
-        if data[i] == 0xFF && data[i + 1] == 0xE1 {
-            // APP1
-            // APP1 length
-            let app1_len = ((data[i + 2] as usize) << 8) | (data[i + 3] as usize);
-            if app1_len < 6 || i + 4 + app1_len > data.len() {
-                break;
-            }
-
-            // 检查 "Exif\0\0" header
-            let exif_start = i + 4;
-            if &data[exif_start..exif_start + 6] == b"Exif\0\0" {
-                let tiff_start = exif_start + 6;
-
-                // 检查字节序 (II = little-endian, MM = big-endian)
-                let little_endian = data[tiff_start] == b'I';
-
-                // 读取 IFD0 offset
-                let ifd0_offset = if little_endian {
-                    u32::from_le_bytes([
-                        data[tiff_start + 4],
-                        data[tiff_start + 5],
-                        data[tiff_start + 6],
-                        data[tiff_start + 7],
-                    ])
-                } else {
-                    u32::from_be_bytes([
-                        data[tiff_start + 4],
-                        data[tiff_start + 5],
-                        data[tiff_start + 6],
-                        data[tiff_start + 7],
-                    ])
-                };
-
-                let ifd0_pos = tiff_start + ifd0_offset as usize;
-                if ifd0_pos + 2 > data.len() {
-                    break;
-                }
-
-                // 读取 entry 数量
-                let num_entries = if little_endian {
-                    u16::from_le_bytes([data[ifd0_pos], data[ifd0_pos + 1]])
-                } else {
-                    u16::from_be_bytes([data[ifd0_pos], data[ifd0_pos + 1]])
-                };
-
-                // 遍历 entries 查找 Orientation tag (0x0112)
-                for j in 0..num_entries {
-                    let entry_pos = ifd0_pos + 2 + (j as usize) * 12;
-                    if entry_pos + 12 > data.len() {
-                        break;
-                    }
-
-                    let tag = if little_endian {
-                        u16::from_le_bytes([data[entry_pos], data[entry_pos + 1]])
-                    } else {
-                        u16::from_be_bytes([data[entry_pos], data[entry_pos + 1]])
-                    };
-
-                    if tag == 0x0112 {
-                        // Orientation
-                        let value = if little_endian {
-                            u16::from_le_bytes([data[entry_pos + 8], data[entry_pos + 9]])
-                        } else {
-                            u16::from_be_bytes([data[entry_pos + 8], data[entry_pos + 9]])
-                        };
-
-                        return Ok(match value {
-                            1 => image::metadata::Orientation::NoTransforms,
-                            2 => image::metadata::Orientation::FlipHorizontal,
-                            3 => image::metadata::Orientation::Rotate180,
-                            4 => image::metadata::Orientation::FlipVertical,
-                            5 => image::metadata::Orientation::Rotate90,
-                            6 => image::metadata::Orientation::Rotate90,
-                            7 => image::metadata::Orientation::Rotate270,
-                            8 => image::metadata::Orientation::Rotate270,
-                            _ => image::metadata::Orientation::NoTransforms,
-                        });
-                    }
-                }
-            }
-            break;
-        }
-        i += 1;
-    }
-
-    Err("No EXIF orientation found".into())
-}
