@@ -393,15 +393,16 @@ impl FastViewApp {
 
     /// 更新目录列表(异步扫描，仅首次加载时执行)
     fn update_directory_list(&mut self, path: &PathBuf) {
-        // 如果已经有缓存，直接使用
-        if let Some(dir_cache) = &self.dir_cache {
-            eprintln!(
-                "[{:.3}s] [APP] 使用目录缓存: {} 张图片",
-                elapsed_ms() as f64 / 1000.0,
-                dir_cache.images.len()
-            );
-
+        // 检查是否需要重新扫描目录
+        let need_rescan = if let Some(dir_cache) = &self.dir_cache {
+            // 如果缓存存在，检查当前图片是否在缓存的目录中
             if let Some(pos) = dir_cache.images.iter().position(|p| p == path) {
+                eprintln!(
+                    "[{:.3}s] [APP] 使用目录缓存: {} 张图片",
+                    elapsed_ms() as f64 / 1000.0,
+                    dir_cache.images.len()
+                );
+
                 self.current_images = dir_cache.images.clone();
                 self.current_index = pos;
                 eprintln!(
@@ -409,25 +410,39 @@ impl FastViewApp {
                     elapsed_ms() as f64 / 1000.0,
                     pos
                 );
+                return; // 缓存命中，直接返回
+            } else {
+                // 当前图片不在缓存的目录中，说明切换到了新目录
+                eprintln!(
+                    "[{:.3}s] [APP] 检测到目录变化，清除旧缓存",
+                    elapsed_ms() as f64 / 1000.0
+                );
+                true // 需要重新扫描
             }
-            return;
-        }
+        } else {
+            true // 首次打开，需要扫描
+        };
 
-        // 首次打开，触发异步扫描
-        if let Some(parent) = path.parent() {
-            eprintln!(
-                "[{:.3}s] [APP] 触发目录扫描: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                parent
-            );
+        // 需要扫描目录
+        if need_rescan {
+            if let Some(parent) = path.parent() {
+                eprintln!(
+                    "[{:.3}s] [APP] 触发目录扫描: {:?}",
+                    elapsed_ms() as f64 / 1000.0,
+                    parent
+                );
 
-            // 发送扫描命令到后台线程
-            if let Some(ref tx) = self.cmd_tx {
-                let _ = tx.send(LoadCommand::ScanDirectory {
-                    dir_path: parent.to_path_buf(),
-                });
+                // 清除旧缓存
+                self.dir_cache = None;
+                
+                // 发送扫描命令到后台线程
+                if let Some(ref tx) = self.cmd_tx {
+                    let _ = tx.send(LoadCommand::ScanDirectory {
+                        dir_path: parent.to_path_buf(),
+                    });
+                }
+                // 注意：此时不设置 current_images，等待扫描结果返回后再更新
             }
-            // 注意：此时不设置 current_images，等待扫描结果返回后再更新
         }
     }
 
