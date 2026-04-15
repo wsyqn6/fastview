@@ -29,7 +29,6 @@ struct DirectoryCache {
 
 pub struct FastViewApp {
     pub texture: Option<egui::TextureHandle>,
-    pub thumbnail_texture: Option<egui::TextureHandle>,
     pub zoom: f32,
     pub rotation: f32,
     pub zoom_mode: ZoomMode,
@@ -72,7 +71,6 @@ impl Default for FastViewApp {
 
         Self {
             texture: None,
-            thumbnail_texture: None,
             zoom: 1.0,
             rotation: 0.0,
             zoom_mode: ZoomMode::Fit,
@@ -182,34 +180,43 @@ impl FastViewApp {
         }
     }
 
-    /// 创建缩略图纹理
-    fn create_thumbnail(
-        &self,
-        image: &crate::types::DecodedImage,
-        ctx: &egui::Context,
-        path: &PathBuf,
-    ) -> Option<egui::TextureHandle> {
-        use image::imageops::thumbnail;
 
-        // 缩略图最大尺寸
-        let max_thumb_size = 200;
 
-        // 计算缩略图尺寸（保持宽高比）
-        let scale = (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
-        let thumb_w = (image.width as f32 * scale) as u32;
-        let thumb_h = (image.height as f32 * scale) as u32;
+    /// 按需生成导航缩略图纹理
+    fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
+        // 检查是否已有缓存的缩略图纹理（通过当前路径判断）
+        if let Some(ref path) = self.current_path {
+            // 尝试从缓存中获取图片数据
+            if let Some(cached) = {
+                let mut cache_guard = self.image_cache.lock().unwrap();
+                cache_guard.get(path).cloned()
+            } {
+                let crate::types::CacheEntry::Decoded(image) = cached;
+                use image::imageops::thumbnail;
 
-        // 生成缩略图
-        let img = image::RgbaImage::from_raw(image.width, image.height, image.data.clone())?;
-        let thumb_img = thumbnail(&img, thumb_w, thumb_h);
+                // 缩略图最大尺寸
+                let max_thumb_size = 120;
 
-        // 创建纹理
-        let thumb_texture_id = format!("thumb_{:?}", path.file_name());
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [thumb_w as usize, thumb_h as usize],
-            thumb_img.as_raw(),
-        );
-        Some(ctx.load_texture(&thumb_texture_id, color_image, egui::TextureOptions::LINEAR))
+                // 计算缩略图尺寸（保持宽高比）
+                let scale = (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
+                let thumb_w = (image.width as f32 * scale) as u32;
+                let thumb_h = (image.height as f32 * scale) as u32;
+
+                // 生成缩略图
+                if let Some(img) = image::RgbaImage::from_raw(image.width, image.height, image.data.clone()) {
+                    let thumb_img = thumbnail(&img, thumb_w, thumb_h);
+
+                    // 创建纹理
+                    let thumb_texture_id = format!("nav_thumb_{:?}", path.file_name());
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [thumb_w as usize, thumb_h as usize],
+                        thumb_img.as_raw(),
+                    );
+                    return Some(ui.ctx().load_texture(&thumb_texture_id, color_image, egui::TextureOptions::LINEAR));
+                }
+            }
+        }
+        None
     }
 
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
@@ -255,9 +262,6 @@ impl FastViewApp {
             elapsed_ms() as f64 / 1000.0,
             texture_id
         );
-
-        // 创建缩略图
-        self.thumbnail_texture = self.create_thumbnail(&image, ctx, path);
 
         // 显示图片
         self.texture = Some(texture);
@@ -827,29 +831,6 @@ impl eframe::App for FastViewApp {
                                 texture_id
                             );
 
-                            // 创建缩略图（在存入缓存之前）
-                            let thumbnail = self.create_thumbnail(&image, ui.ctx(), &path);
-
-                            // 存入缓存
-                            {
-                                let mut cache_guard = self.image_cache.lock().unwrap();
-                                let memory_bytes = (image.width * image.height * 4) as usize;
-
-                                // 内存检查和淘汰
-                                self.evict_if_needed(&mut cache_guard, memory_bytes);
-
-                                cache_guard.put(path.clone(), CacheEntry::Decoded(image));
-                            }
-
-                            // 设置缩略图
-                            self.thumbnail_texture = thumbnail;
-
-                            // 应用到当前显示
-                            eprintln!(
-                                "[{:.3}s] [APP] 应用纹理到当前图片",
-                                elapsed_ms() as f64 / 1000.0
-                            );
-
                             // 在设置新纹理前，显式清除旧纹理以释放内存
                             let old_texture = self.texture.take();
                             drop(old_texture); // 立即释放
@@ -1102,8 +1083,9 @@ impl eframe::App for FastViewApp {
                         }
                     }
 
-                    // 显示缩略图导航（只要需要导航就显示，不依赖拖动模式）
-                    if need_navigation && let Some(ref thumb_tex) = self.thumbnail_texture {
+                    // 显示缩略图导航（按需生成）
+                    if need_navigation {
+                        if let Some(thumb_tex) = self.get_or_create_nav_thumbnail(ui) {
                         let img_ratio = self.image_size.x / self.image_size.y;
 
                         // 缩略图尺寸：保持宽高比，最大边120px
@@ -1250,33 +1232,10 @@ impl eframe::App for FastViewApp {
                                     );
                                 }
                             });
+                        }
                     }
                 } else if self.current_path.is_some() {
-                    // Loading 状态:显示缩略图或加载指示器
-                    if let Some(ref thumb_tex) = self.thumbnail_texture {
-                        // 获取缩略图的实际尺寸
-                        let thumb_original_size = thumb_tex.size_vec2();
-
-                        // 限制最大显示尺寸为 128x128，保持宽高比
-                        let max_size = 128.0;
-                        let scale = (max_size / thumb_original_size.x)
-                            .min(max_size / thumb_original_size.y)
-                            .min(1.0); // 不放大，只缩小
-
-                        let display_size = thumb_original_size * scale;
-                        let center = egui::Pos2::new(available.x / 2.0, available.y / 2.0);
-                        let rect = egui::Rect::from_center_size(center, display_size);
-
-                        // 创建图片并应用旋转（如果有）
-                        let mut image = egui::Image::new((thumb_tex.id(), display_size));
-                        if self.rotation != 0.0 {
-                            let angle_rad = self.rotation * std::f32::consts::TAU / 360.0;
-                            image = image.rotate(angle_rad, egui::Vec2::splat(0.5));
-                        }
-
-                        ui.put(rect, image);
-                    }
-                    // 如果没有缩略图,就什么都不显示(保持深色背景)
+                    // Loading 状态：保持深色背景，不显示任何内容
                 } else {
                     // 真正的初始状态:没有加载任何图片
                     egui::Area::new(egui::Id::new("welcome_area"))
