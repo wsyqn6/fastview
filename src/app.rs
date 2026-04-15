@@ -29,6 +29,7 @@ struct DirectoryCache {
 
 pub struct FastViewApp {
     pub texture: Option<egui::TextureHandle>,
+    pub nav_thumbnail: Option<(PathBuf, egui::TextureHandle)>, // 缓存导航缩略图（路径，纹理）
     pub zoom: f32,
     pub rotation: f32,
     pub zoom_mode: ZoomMode,
@@ -71,6 +72,7 @@ impl Default for FastViewApp {
 
         Self {
             texture: None,
+            nav_thumbnail: None,
             zoom: 1.0,
             rotation: 0.0,
             zoom_mode: ZoomMode::Fit,
@@ -184,35 +186,46 @@ impl FastViewApp {
 
     /// 按需生成导航缩略图纹理
     fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
-        // 检查是否已有缓存的缩略图纹理（通过当前路径判断）
+        // 检查是否已有缓存的缩略图纹理
+        if let Some((cached_path, texture)) = &self.nav_thumbnail {
+            if let Some(ref current_path) = self.current_path {
+                if cached_path == current_path {
+                    return Some(texture.clone());
+                }
+            }
+        }
+
+        // 没有缓存或路径变化，从图片缓存中获取数据生成缩略图
         if let Some(ref path) = self.current_path {
             // 尝试从缓存中获取图片数据
             if let Some(cached) = {
                 let mut cache_guard = self.image_cache.lock().unwrap();
                 cache_guard.get(path).cloned()
             } {
-                let crate::types::CacheEntry::Decoded(image) = cached;
+                let CacheEntry::Decoded(image) = cached;
                 use image::imageops::thumbnail;
 
-                // 缩略图最大尺寸
-                let max_thumb_size = 120;
-
                 // 计算缩略图尺寸（保持宽高比）
+                let max_thumb_size = 120;
                 let scale = (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
                 let thumb_w = (image.width as f32 * scale) as u32;
                 let thumb_h = (image.height as f32 * scale) as u32;
 
-                // 生成缩略图
+                // 从原始像素数据创建 RgbaImage
                 if let Some(img) = image::RgbaImage::from_raw(image.width, image.height, image.data.clone()) {
+                    // 生成缩略图（非常快，因为只是缩放操作）
                     let thumb_img = thumbnail(&img, thumb_w, thumb_h);
 
                     // 创建纹理
-                    let thumb_texture_id = format!("nav_thumb_{:?}", path.file_name());
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(
                         [thumb_w as usize, thumb_h as usize],
                         thumb_img.as_raw(),
                     );
-                    return Some(ui.ctx().load_texture(&thumb_texture_id, color_image, egui::TextureOptions::LINEAR));
+                    let texture = ui.ctx().load_texture("nav_thumbnail", color_image, egui::TextureOptions::LINEAR);
+                    
+                    // 缓存纹理
+                    self.nav_thumbnail = Some((path.clone(), texture.clone()));
+                    return Some(texture);
                 }
             }
         }
@@ -271,6 +284,12 @@ impl FastViewApp {
         self.zoom = 1.0;
         self.rotation = 0.0;
         self.image_offset = egui::Vec2::ZERO;
+
+        // 将解码后的数据重新放回缓存（因为 entry 被移动了）
+        {
+            let mut cache_guard = self.image_cache.lock().unwrap();
+            cache_guard.put(path.clone(), CacheEntry::Decoded(image));
+        }
 
         // 更新目录列表
         self.update_directory_list(path);
@@ -868,6 +887,14 @@ impl eframe::App for FastViewApp {
                             self.rotation = 0.0;
                             self.image_offset = egui::Vec2::ZERO;
 
+                            // 将解码后的数据放入缓存（供导航缩略图使用）
+                            {
+                                let mut cache_guard = self.image_cache.lock().unwrap();
+                                let memory_bytes = (image.width * image.height * 4) as usize;
+                                self.evict_if_needed(&mut cache_guard, memory_bytes);
+                                cache_guard.put(path.clone(), CacheEntry::Decoded(image));
+                            }
+
                             // 触发预加载（在借用结束后）
                             needs_prefetch = true;
 
@@ -1070,7 +1097,8 @@ impl eframe::App for FastViewApp {
 
                     ui.put(absolute_rect, image);
 
-                    // 缩略图导航：当图片大于可视区域时显示
+                    // 检查是否需要显示导航缩略图
+                    // 条件：当前显示的图片尺寸大于可视区域（说明无法完整显示）
                     let need_navigation = size.x > available.x || size.y > available.y;
 
                     // 拖动模式：按住空格键或鼠标中键时启用
@@ -1121,7 +1149,7 @@ impl eframe::App for FastViewApp {
 
                         // 使用 Area 创建悬浮缩略图
                         egui::Area::new(egui::Id::new("thumbnail_navigator"))
-                            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -16.0]) // 右下角，距离边缘16px
+                            .anchor(egui::Align2::RIGHT_BOTTOM, [-24.0, -24.0]) // 右下角，距离边缘24px
                             .show(ui.ctx(), |ui| {
                                 // 绘制缩略图并获取其位置
                                 let mut thumb_image =
