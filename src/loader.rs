@@ -4,6 +4,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use crate::debug_log;
 use crate::types::DecodedImage;
 use rayon::ThreadPool;
 
@@ -145,7 +146,7 @@ impl ImageLoader {
         {
             let active = self.active_tasks.lock().unwrap();
             if active.contains(&path) {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [LOADER] 跳过重复任务（正在执行）: {:?}",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name()
@@ -158,7 +159,7 @@ impl ImageLoader {
         if let Some(existing_task) = self.pending.iter_mut().find(|t| t.path == path) {
             // 如果新任务优先级更高，更新优先级
             if priority > existing_task.priority {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [LOADER] 升级任务优先级: {:?} ({:?} -> {:?})",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name(),
@@ -168,7 +169,7 @@ impl ImageLoader {
                 existing_task.priority = priority;
             } else {
                 // 否则跳过，不重复添加
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [LOADER] 跳过重复任务: {:?} (当前优先级={:?}, 请求优先级={:?})",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name(),
@@ -222,7 +223,7 @@ impl ImageLoader {
                 active.insert(path.clone());
             }
 
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [LOADER] 开始解码: {:?} (priority={:?})",
                 elapsed_ms() as f64 / 1000.0,
                 path.file_name(),
@@ -235,7 +236,7 @@ impl ImageLoader {
                 match decode_image_file(&path) {
                     Ok(image) => {
                         let duration = start.elapsed();
-                        eprintln!(
+                        debug_log!(
                             "[{:.3}s] [LOADER] 解码完成: {:?} ({}x{}, {}ms)",
                             elapsed_ms() as f64 / 1000.0,
                             path.file_name(),
@@ -257,7 +258,7 @@ impl ImageLoader {
                         });
                         let send_duration = send_start.elapsed();
                         if send_duration.as_millis() > 100 {
-                            eprintln!(
+                            debug_log!(
                                 "[{:.3}s] [LOADER] 警告：发送结果耗时 {}ms",
                                 elapsed_ms() as f64 / 1000.0,
                                 send_duration.as_millis()
@@ -265,7 +266,7 @@ impl ImageLoader {
                         }
                     }
                     Err(e) => {
-                        eprintln!(
+                        debug_log!(
                             "[{:.3}s] [LOADER] 解码失败: {:?}, error={}",
                             elapsed_ms() as f64 / 1000.0,
                             path.file_name(),

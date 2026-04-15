@@ -24,6 +24,10 @@ once_cell = "1"
 lru = "0.12"
 rayon = "1"
 
+# Windows 平台配置：release 模式不显示控制台窗口
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Console"] }
+
 [profile.release]
 opt-level = "z"      # 体积优先
 codegen-units = 1

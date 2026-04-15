@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::debug_log;
 use crate::fonts::setup_fonts;
 use crate::i18n::TextKey;
 use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
@@ -250,7 +251,7 @@ impl FastViewApp {
 
     /// 应用缓存条目
     fn apply_cached_entry(&mut self, entry: CacheEntry, path: &PathBuf, ctx: &egui::Context) {
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 缓存命中: {:?}",
             elapsed_ms() as f64 / 1000.0,
             path.file_name()
@@ -270,7 +271,7 @@ impl FastViewApp {
         );
         let texture = ctx.load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
 
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 缓存纹理创建完成: {}",
             elapsed_ms() as f64 / 1000.0,
             texture_id
@@ -304,7 +305,7 @@ impl FastViewApp {
 
     /// 异步加载图片(使用专用后台线程)
     fn load_image_async(&mut self, path: &PathBuf, _ctx: &egui::Context) {
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 请求加载: {:?}",
             elapsed_ms() as f64 / 1000.0,
             path.file_name()
@@ -320,7 +321,7 @@ impl FastViewApp {
 
         // 3. 发送高清图加载请求（直接加载完整尺寸）
         if let Some(ref tx) = self.cmd_tx {
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [APP] 发送加载请求 (高清)",
                 elapsed_ms() as f64 / 1000.0
             );
@@ -337,7 +338,7 @@ impl FastViewApp {
             return;
         }
 
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 上一张: current_images={}, current_index={}",
             elapsed_ms() as f64 / 1000.0,
             self.current_images.len(),
@@ -358,7 +359,7 @@ impl FastViewApp {
 
         self.current_index = new_index;
         let path = self.current_images[self.current_index].clone();
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 切换到: {:?}",
             elapsed_ms() as f64 / 1000.0,
             path.file_name()
@@ -372,7 +373,7 @@ impl FastViewApp {
             return;
         }
 
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 下一张: current_images={}, current_index={}",
             elapsed_ms() as f64 / 1000.0,
             self.current_images.len(),
@@ -393,7 +394,7 @@ impl FastViewApp {
 
         self.current_index = new_index;
         let path = self.current_images[self.current_index].clone();
-        eprintln!(
+        debug_log!(
             "[{:.3}s] [APP] 切换到: {:?}",
             elapsed_ms() as f64 / 1000.0,
             path.file_name()
@@ -442,7 +443,7 @@ impl FastViewApp {
         let need_rescan = if let Some(dir_cache) = &self.dir_cache {
             // 如果缓存存在，检查当前图片是否在缓存的目录中
             if let Some(pos) = dir_cache.images.iter().position(|p| p == path) {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 使用目录缓存: {} 张图片",
                     elapsed_ms() as f64 / 1000.0,
                     dir_cache.images.len()
@@ -450,7 +451,7 @@ impl FastViewApp {
 
                 self.current_images = dir_cache.images.clone();
                 self.current_index = pos;
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 从缓存恢复位置: {}",
                     elapsed_ms() as f64 / 1000.0,
                     pos
@@ -458,7 +459,7 @@ impl FastViewApp {
                 return; // 缓存命中，直接返回
             } else {
                 // 当前图片不在缓存的目录中，说明切换到了新目录
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 检测到目录变化，清除旧缓存",
                     elapsed_ms() as f64 / 1000.0
                 );
@@ -471,7 +472,7 @@ impl FastViewApp {
         // 需要扫描目录
         if need_rescan {
             if let Some(parent) = path.parent() {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 触发目录扫描: {:?}",
                     elapsed_ms() as f64 / 1000.0,
                     parent
@@ -509,7 +510,7 @@ impl FastViewApp {
 
         // 只有当前图片加载完成后才预加载
         if !current_loaded {
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [APP] 跳过预加载：当前图片尚未加载完成",
                 elapsed_ms() as f64 / 1000.0
             );
@@ -532,7 +533,7 @@ impl FastViewApp {
             if !cache_guard.contains(path) {
                 to_prefetch.push(path.clone());
             } else {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name()
@@ -546,7 +547,7 @@ impl FastViewApp {
             if !cache_guard.contains(path) {
                 to_prefetch.push(path.clone());
             } else {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name()
@@ -560,7 +561,7 @@ impl FastViewApp {
             if !cache_guard.contains(path) {
                 to_prefetch.push(path.clone());
             } else {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
                     elapsed_ms() as f64 / 1000.0,
                     path.file_name()
@@ -572,7 +573,7 @@ impl FastViewApp {
 
         // 发送预加载命令到后台线程
         if !to_prefetch.is_empty() {
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [APP] 预加载 {} 张图片",
                 elapsed_ms() as f64 / 1000.0,
                 to_prefetch.len()
@@ -585,7 +586,7 @@ impl FastViewApp {
                 });
             }
         } else {
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [APP] 无需预加载：所有相邻图片已缓存",
                 elapsed_ms() as f64 / 1000.0
             );
@@ -633,7 +634,7 @@ impl FastViewApp {
             if current_memory + new_entry_bytes > max_memory {
                 if let Some((oldest_path, oldest_entry)) = cache.pop_lru() {
                     let freed_bytes = oldest_entry.estimated_memory_bytes();
-                    eprintln!(
+                    debug_log!(
                         "[EVICT] Removed {:?} (freed {} MB)",
                         oldest_path.file_name(),
                         freed_bytes as f64 / 1024.0 / 1024.0
@@ -804,7 +805,7 @@ impl eframe::App for FastViewApp {
             }
             let recv_duration = recv_start.elapsed();
             if !pending_results.is_empty() {
-                eprintln!(
+                debug_log!(
                     "[{:.3}s] [APP] 收集了 {} 个结果 (耗时 {}ms)",
                     elapsed_ms() as f64 / 1000.0,
                     pending_results.len(),
@@ -839,7 +840,7 @@ impl eframe::App for FastViewApp {
                 results_processed += 1;
                 match result {
                     LoadResult::ImageReady { path, image } => {
-                        eprintln!(
+                        debug_log!(
                             "[{:.3}s] [APP] 收到图片: {:?} ({}x{})",
                             elapsed_ms() as f64 / 1000.0,
                             path.file_name(),
@@ -866,7 +867,7 @@ impl eframe::App for FastViewApp {
                                 egui::TextureOptions::LINEAR,
                             );
 
-                            eprintln!(
+                            debug_log!(
                                 "[{:.3}s] [APP] 纹理创建完成: {}",
                                 elapsed_ms() as f64 / 1000.0,
                                 texture_id
@@ -881,7 +882,7 @@ impl eframe::App for FastViewApp {
                             self.image_size = image_size;
 
                             // 重置缩放模式
-                            eprintln!("[{:.3}s] [APP] 重置缩放模式", elapsed_ms() as f64 / 1000.0);
+                            debug_log!("[{:.3}s] [APP] 重置缩放模式", elapsed_ms() as f64 / 1000.0);
                             self.zoom_mode = ZoomMode::Fit;
                             self.zoom = 1.0;
                             self.rotation = 0.0;
@@ -902,7 +903,7 @@ impl eframe::App for FastViewApp {
                             path_for_dir_update = Some(path.clone());
                         } else {
                             // 预加载的图片：只存入缓存，不创建纹理
-                            eprintln!(
+                            debug_log!(
                                 "[{:.3}s] [APP] 缓存预加载图片: {:?}",
                                 elapsed_ms() as f64 / 1000.0,
                                 path.file_name()
@@ -921,7 +922,7 @@ impl eframe::App for FastViewApp {
                     }
                     LoadResult::DirectoryScanned { images } => {
                         // 目录扫描完成，更新缓存和列表
-                        eprintln!(
+                        debug_log!(
                             "[{:.3}s] [APP] 目录扫描完成: {} 张图片",
                             elapsed_ms() as f64 / 1000.0,
                             images.len()
@@ -936,7 +937,7 @@ impl eframe::App for FastViewApp {
                             // 如果当前有路径，找到它在列表中的位置
                             if let Some(ref current_path) = self.current_path {
                                 if let Some(pos) = images.iter().position(|p| p == current_path) {
-                                    eprintln!(
+                                    debug_log!(
                                         "[{:.3}s] [APP] 找到当前图片位置: {}",
                                         elapsed_ms() as f64 / 1000.0,
                                         pos
@@ -944,13 +945,13 @@ impl eframe::App for FastViewApp {
                                     self.current_images = images;
                                     self.current_index = pos;
                                 } else {
-                                    eprintln!(
+                                    debug_log!(
                                         "[{:.3}s] [APP] 警告：当前图片不在扫描结果中",
                                         elapsed_ms() as f64 / 1000.0
                                     );
                                 }
                             } else {
-                                eprintln!(
+                                debug_log!(
                                     "[{:.3}s] [APP] 警告：current_path为空",
                                     elapsed_ms() as f64 / 1000.0
                                 );
@@ -965,7 +966,7 @@ impl eframe::App for FastViewApp {
         }
 
         if results_processed > 0 {
-            eprintln!(
+            debug_log!(
                 "[{:.3}s] [APP] 处理了 {} 个结果",
                 elapsed_ms() as f64 / 1000.0,
                 results_processed
@@ -1320,14 +1321,14 @@ impl eframe::App for FastViewApp {
                 if pressed {
                     match key {
                         egui::Key::ArrowLeft => {
-                            eprintln!(
+                            debug_log!(
                                 "[{:.3}s] [APP] 检测到左箭头键",
                                 elapsed_ms() as f64 / 1000.0
                             );
                             self.prev_image(ui.ctx());
                         }
                         egui::Key::ArrowRight => {
-                            eprintln!(
+                            debug_log!(
                                 "[{:.3}s] [APP] 检测到右箭头键",
                                 elapsed_ms() as f64 / 1000.0
                             );

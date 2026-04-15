@@ -7,7 +7,32 @@ mod types;
 use app::FastViewApp;
 use eframe::egui;
 
+/// 仅在 debug 模式下输出日志
+#[macro_export]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        eprintln!($($arg)*);
+    };
+}
+
+/// Windows 平台：在 release 模式下隐藏控制台窗口
+#[cfg(all(windows, not(debug_assertions)))]
+fn hide_console_window() {
+    use windows_sys::Win32::System::Console::GetConsoleWindow;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    unsafe {
+        let hwnd = GetConsoleWindow();
+        if !hwnd.is_null() {
+            ShowWindow(hwnd, SW_HIDE);
+        }
+    }
+}
+
 fn main() -> eframe::Result<()> {
+    // Windows release 模式：隐藏控制台窗口
+    #[cfg(all(windows, not(debug_assertions)))]
+    hide_console_window();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
