@@ -313,6 +313,11 @@ impl FastViewApp {
     }
 
     pub fn prev_image(&mut self, ctx: &egui::Context) {
+        // 只有一张图片或没有图片时，不执行切换
+        if self.current_images.len() <= 1 {
+            return;
+        }
+
         eprintln!(
             "[{:.3}s] [APP] 上一张: current_images={}, current_index={}",
             elapsed_ms() as f64 / 1000.0,
@@ -320,23 +325,34 @@ impl FastViewApp {
             self.current_index
         );
 
-        if !self.current_images.is_empty() {
-            if self.current_index > 0 {
-                self.current_index -= 1;
-            } else {
-                self.current_index = self.current_images.len() - 1;
-            }
-            let path = self.current_images[self.current_index].clone();
-            eprintln!(
-                "[{:.3}s] [APP] 切换到: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name()
-            );
-            self.load_image(&path, ctx).ok();
+        // 计算新索引
+        let new_index = if self.current_index > 0 {
+            self.current_index - 1
+        } else {
+            self.current_images.len() - 1
+        };
+
+        // 如果索引没变化，不执行切换
+        if new_index == self.current_index {
+            return;
         }
+
+        self.current_index = new_index;
+        let path = self.current_images[self.current_index].clone();
+        eprintln!(
+            "[{:.3}s] [APP] 切换到: {:?}",
+            elapsed_ms() as f64 / 1000.0,
+            path.file_name()
+        );
+        self.load_image(&path, ctx).ok();
     }
 
     pub fn next_image(&mut self, ctx: &egui::Context) {
+        // 只有一张图片或没有图片时，不执行切换
+        if self.current_images.len() <= 1 {
+            return;
+        }
+
         eprintln!(
             "[{:.3}s] [APP] 下一张: current_images={}, current_index={}",
             elapsed_ms() as f64 / 1000.0,
@@ -344,20 +360,26 @@ impl FastViewApp {
             self.current_index
         );
 
-        if !self.current_images.is_empty() {
-            if self.current_index < self.current_images.len() - 1 {
-                self.current_index += 1;
-            } else {
-                self.current_index = 0;
-            }
-            let path = self.current_images[self.current_index].clone();
-            eprintln!(
-                "[{:.3}s] [APP] 切换到: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name()
-            );
-            self.load_image(&path, ctx).ok();
+        // 计算新索引
+        let new_index = if self.current_index < self.current_images.len() - 1 {
+            self.current_index + 1
+        } else {
+            0
+        };
+
+        // 如果索引没变化，不执行切换
+        if new_index == self.current_index {
+            return;
         }
+
+        self.current_index = new_index;
+        let path = self.current_images[self.current_index].clone();
+        eprintln!(
+            "[{:.3}s] [APP] 切换到: {:?}",
+            elapsed_ms() as f64 / 1000.0,
+            path.file_name()
+        );
+        self.load_image(&path, ctx).ok();
     }
 
     pub fn zoom_in(&mut self, current_scale: f32) {
