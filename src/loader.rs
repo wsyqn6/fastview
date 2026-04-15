@@ -347,17 +347,24 @@ impl ImageLoader {
 fn decode_image_file(
     path: &PathBuf,
 ) -> Result<DecodedImage, Box<dyn std::error::Error + Send + Sync>> {
-    use image::ImageReader;
+    use image::{ImageReader, ImageDecoder};
     use std::fs::File;
     use std::io::BufReader;
 
     let file = File::open(path)?;
     let reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
 
-    // 解码图片（image 库自动处理 EXIF 方向）
-    let img = reader
-        .decode()
-        .map_err(|e| format!("Decode error: {}", e))?;
+    // 获取 decoder 以读取 EXIF 方向信息
+    let mut decoder = reader.into_decoder()?;
+    
+    // 从 EXIF 数据中获取方向
+    let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+
+    // 解码图片
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+
+    // 应用 EXIF 方向变换
+    img.apply_orientation(orientation);
 
     let rgba = img.into_rgba8();
     let (width, height) = rgba.dimensions();
