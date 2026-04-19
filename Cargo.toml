@@ -1,6 +1,6 @@
 [package]
 name = "fastview"
-version = "0.2.6"
+version = "0.2.7"
 description = "A fast, lightweight, and modern image viewer built with Rust"
 authors = ["FastView Team"]
 license = "MIT"
@@ -34,3 +34,7 @@ codegen-units = 1
 lto = true
 strip = true
 panic = "abort"      # 关键!减小体积
+
+[[example]]
+name = "generate_test_image"
+path = "examples/generate_test_image.rs"

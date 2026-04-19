@@ -2,4 +2,5 @@
 .lingma
 .vscode
 target
-
+examples
+*.png

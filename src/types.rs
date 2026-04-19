@@ -45,6 +45,39 @@ pub struct DecodedImage {
     pub height: u32,
 }
 
+/// 分块图片数据
+#[derive(Clone)]
+pub struct TiledImage {
+    /// 原始图片尺寸
+    pub width: u32,
+    pub height: u32,
+    /// 缩略图数据（用于背景显示）
+    pub thumbnail: Arc<DecodedImage>,
+    /// 分块信息
+    pub tiles: Vec<TileInfo>,
+    /// 块大小（默认1024）
+    pub tile_size: u32,
+    /// 列数
+    pub cols: u32,
+    /// 行数
+    pub rows: u32,
+}
+
+/// 单个图片块信息
+#[derive(Clone, Debug)]
+pub struct TileInfo {
+    /// 块的坐标（列，行）
+    pub col: u32,
+    pub row: u32,
+    /// 块在原始图片中的位置和尺寸
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    /// 是否已加载到纹理
+    pub loaded: bool,
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub enum ZoomMode {
     Fit,
@@ -58,6 +91,8 @@ pub enum ZoomMode {
 pub enum CacheEntry {
     /// 解码后的图片数据
     Decoded(Arc<DecodedImage>),
+    /// 分块图片元数据（不包含像素数据，像素数据单独管理）
+    TiledMeta(Arc<TiledImage>),
 }
 
 impl CacheEntry {
@@ -65,6 +100,10 @@ impl CacheEntry {
     pub fn estimated_memory_bytes(&self) -> usize {
         match self {
             CacheEntry::Decoded(img) => (img.width * img.height * 4) as usize,
+            CacheEntry::TiledMeta(tiled) => {
+                // 只计算缩略图的内存，块数据单独管理
+                (tiled.thumbnail.width * tiled.thumbnail.height * 4) as usize
+            }
         }
     }
 }

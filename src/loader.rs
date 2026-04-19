@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::debug_log;
-use crate::types::DecodedImage;
+use crate::types::{DecodedImage, TiledImage, TileInfo};
 use rayon::ThreadPool;
 
 // 全局启动时间（用于相对时间日志）
@@ -37,6 +37,18 @@ pub enum LoadCommand {
     },
     /// 异步扫描目录
     ScanDirectory { dir_path: PathBuf },
+    /// 创建分块图片元数据
+    CreateTiledImage {
+        path: PathBuf,
+        priority: LoadPriority,
+    },
+    /// 加载特定块
+    LoadTile {
+        path: PathBuf,
+        col: u32,
+        row: u32,
+        priority: LoadPriority,
+    },
 }
 
 /// 加载结果（发回 UI 线程）
@@ -45,6 +57,22 @@ pub enum LoadResult {
     ImageReady {
         path: PathBuf,
         image: Arc<DecodedImage>,
+    },
+    /// 分块图片元数据已创建
+    TiledImageMetaReady {
+        path: PathBuf,
+        tiled_image: Arc<TiledImage>,
+    },
+    /// 单个块已加载
+    TileReady {
+        path: PathBuf,
+        col: u32,
+        row: u32,
+        data: Vec<u8>,
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
     },
     /// 加载失败
     #[allow(dead_code)]
@@ -56,6 +84,14 @@ pub enum LoadResult {
 struct PendingTask {
     path: PathBuf,
     priority: LoadPriority,
+    task_type: TaskType,
+}
+
+#[derive(Debug, Clone)]
+enum TaskType {
+    LoadFull,
+    LoadTile { col: u32, row: u32 },
+    CreateTiled,
 }
 
 pub struct ImageLoader {
@@ -82,10 +118,18 @@ impl ImageLoader {
     pub fn new(result_tx: Sender<LoadResult>) -> (Self, Sender<LoadCommand>) {
         let (cmd_tx, cmd_rx) = channel();
 
-        // 创建rayon线程池（2-4个线程，根据CPU核心数调整）
+        // 创建rayon线程池（根据CPU核心数动态调整）
+        let num_cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        // 使用 CPU 核心数，但不超过 8 个线程（避免过度并发）
+        let num_threads = num_cpus.min(8).max(2);
+        
+        debug_log!("[LOADER] 初始化线程池: {} 个线程 (CPU核心数: {})", num_threads, num_cpus);
+        
         let pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
-                .num_threads(4)
+                .num_threads(num_threads)
                 .thread_name(|i| format!("image-loader-{}", i))
                 .build()
                 .expect("Failed to create thread pool"),
@@ -123,6 +167,18 @@ impl ImageLoader {
                     LoadCommand::ScanDirectory { dir_path } => {
                         self.scan_directory_async(dir_path);
                     }
+                    LoadCommand::CreateTiledImage { path, priority } => {
+                        self.handle_create_tiled(path, priority);
+                        if priority >= LoadPriority::High {
+                            self.process_pending();
+                        }
+                    }
+                    LoadCommand::LoadTile { path, col, row, priority } => {
+                        self.handle_load_tile(path, col, row, priority);
+                        if priority >= LoadPriority::High {
+                            self.process_pending();
+                        }
+                    }
                 }
             }
 
@@ -156,8 +212,7 @@ impl ImageLoader {
         }
 
         // 检查pending队列中是否已有相同路径的任务
-        if let Some(existing_task) = self.pending.iter_mut().find(|t| t.path == path) {
-            // 如果新任务优先级更高，更新优先级
+        if let Some(existing_task) = self.pending.iter_mut().find(|t| t.path == path && matches!(t.task_type, TaskType::LoadFull)) {
             if priority > existing_task.priority {
                 debug_log!(
                     "[{:.3}s] [LOADER] 升级任务优先级: {:?} ({:?} -> {:?})",
@@ -168,19 +223,19 @@ impl ImageLoader {
                 );
                 existing_task.priority = priority;
             } else {
-                // 否则跳过，不重复添加
                 debug_log!(
-                    "[{:.3}s] [LOADER] 跳过重复任务: {:?} (当前优先级={:?}, 请求优先级={:?})",
+                    "[{:.3}s] [LOADER] 跳过重复任务: {:?}",
                     elapsed_ms() as f64 / 1000.0,
-                    path.file_name(),
-                    existing_task.priority,
-                    priority
+                    path.file_name()
                 );
                 return;
             }
         } else {
-            // 创建新任务并加入队列
-            let task = PendingTask { path, priority };
+            let task = PendingTask { 
+                path, 
+                priority,
+                task_type: TaskType::LoadFull,
+            };
 
             // 插入队列，保持按优先级降序排列
             let pos = self
@@ -191,97 +246,218 @@ impl ImageLoader {
             self.pending.insert(pos, task);
         }
 
-        // 如果高优先级任务出现，清理过期的低优先级任务
         if priority >= LoadPriority::High {
-            // 保留高优先级任务，删除低优先级任务
             self.pending.retain(|t| t.priority >= LoadPriority::High);
         }
+    }
+
+    fn handle_create_tiled(&mut self, path: PathBuf, priority: LoadPriority) {
+        // 首先读取图片尺寸，判断是否需要分块加载
+        let needs_tiled = match image::image_dimensions(&path) {
+            Ok((width, height)) => {
+                // 分辨率 >= 6000 时使用分块加载
+                let need = width >= 6000 || height >= 6000;
+                debug_log!(
+                    "[{:.3}s] [LOADER] 图片尺寸: {}x{}, 需要分块: {}",
+                    elapsed_ms() as f64 / 1000.0,
+                    width, height, need
+                );
+                need
+            }
+            Err(e) => {
+                debug_log!(
+                    "[{:.3}s] [LOADER] 无法读取图片尺寸: {:?}, 错误: {}",
+                    elapsed_ms() as f64 / 1000.0,
+                    path.file_name(), e
+                );
+                false
+            }
+        };
+        
+        if !needs_tiled {
+            // 小图片，直接使用普通加载
+            debug_log!(
+                "[{:.3}s] [LOADER] 小图片，使用普通加载",
+                elapsed_ms() as f64 / 1000.0
+            );
+            self.handle_load(path, priority);
+            return;
+        }
+        
+        // 检查是否已经在执行中
+        let task_key = format!("{:?}_tiled", path);
+        {
+            let active = self.active_tasks.lock().unwrap();
+            if active.contains(&PathBuf::from(&task_key)) {
+                return;
+            }
+        }
+
+        // 添加到pending队列
+        let task = PendingTask {
+            path: path.clone(),
+            priority,
+            task_type: TaskType::CreateTiled,
+        };
+
+        let pos = self
+            .pending
+            .iter()
+            .position(|t| t.priority < priority)
+            .unwrap_or(self.pending.len());
+        self.pending.insert(pos, task);
+    }
+
+    fn handle_load_tile(&mut self, path: PathBuf, col: u32, row: u32, priority: LoadPriority) {
+        // 为每个块生成唯一标识
+        let task_key = format!("{:?}_tile_{}_{}", path, col, row);
+        
+        {
+            let active = self.active_tasks.lock().unwrap();
+            if active.contains(&PathBuf::from(&task_key)) {
+                debug_log!(
+                    "[{:.3}s] [LOADER] 跳过重复块加载: {:?} ({},{})",
+                    elapsed_ms() as f64 / 1000.0,
+                    path.file_name(),
+                    col,
+                    row
+                );
+                return;
+            }
+        }
+
+        // 检查是否已在pending队列中
+        if self.pending.iter().any(|t| {
+            t.path == path && 
+            matches!(&t.task_type, TaskType::LoadTile { col: c, row: r } if *c == col && *r == row)
+        }) {
+            return;
+        }
+
+        let task = PendingTask {
+            path,
+            priority,
+            task_type: TaskType::LoadTile { col, row },
+        };
+
+        let pos = self
+            .pending
+            .iter()
+            .position(|t| t.priority < priority)
+            .unwrap_or(self.pending.len());
+        self.pending.insert(pos, task);
     }
 
     fn process_pending(&mut self) {
         if self.pending.is_empty() {
             return;
         }
-
-        // 按优先级排序：Critical > High > Low
-        // 确保当前图片优先于预加载图片
+    
         self.pending
             .make_contiguous()
             .sort_by(|a, b| b.priority.cmp(&a.priority));
-
-        // 取最高优先级的任务执行
+    
         if let Some(task) = self.pending.pop_front() {
             let path = task.path.clone();
             let priority = task.priority;
+            let task_type = task.task_type.clone();
             let result_tx = self.result_tx.clone();
             let pool = self.pool.clone();
             let active_tasks = self.active_tasks.clone();
-
+    
             // 标记为正在执行
             {
                 let mut active = active_tasks.lock().unwrap();
-                active.insert(path.clone());
+                match &task_type {
+                    TaskType::LoadFull | TaskType::CreateTiled => {
+                        active.insert(path.clone());
+                    }
+                    TaskType::LoadTile { col, row } => {
+                        let key = format!("{:?}_tile_{}_{}", path, col, row);
+                        active.insert(PathBuf::from(key));
+                    }
+                }
             }
-
+    
             debug_log!(
-                "[{:.3}s] [LOADER] 开始解码: {:?} (priority={:?})",
+                "[{:.3}s] [LOADER] 开始处理: {:?} (type={:?}, priority={:?})",
                 elapsed_ms() as f64 / 1000.0,
                 path.file_name(),
+                task_type,
                 priority
             );
-
-            // 使用rayon线程池异步执行解码
+    
             pool.spawn(move || {
                 let start = Instant::now();
-                match decode_image_file(&path) {
-                    Ok(image) => {
-                        let duration = start.elapsed();
-                        debug_log!(
-                            "[{:.3}s] [LOADER] 解码完成: {:?} ({}x{}, {}ms)",
-                            elapsed_ms() as f64 / 1000.0,
-                            path.file_name(),
-                            image.width,
-                            image.height,
-                            duration.as_millis()
-                        );
-
-                        // 从active_tasks中移除
-                        {
-                            let mut active = active_tasks.lock().unwrap();
+                    
+                let result = match &task_type {
+                    TaskType::LoadFull => {
+                        decode_image_file(&path).map(|image| {
+                            LoadResult::ImageReady {
+                                path: path.clone(),
+                                image: Arc::new(image),
+                            }
+                        })
+                    }
+                    TaskType::CreateTiled => {
+                        create_tiled_image_meta(&path).map(|tiled| {
+                            LoadResult::TiledImageMetaReady {
+                                path: path.clone(),
+                                tiled_image: Arc::new(tiled),
+                            }
+                        })
+                    }
+                    TaskType::LoadTile { col, row } => {
+                        decode_tile(&path, *col, *row, 1024).map(|(data, w, h, x, y)| {
+                            LoadResult::TileReady {
+                                path: path.clone(),
+                                col: *col,
+                                row: *row,
+                                data,
+                                width: w,
+                                height: h,
+                                x,
+                                y,
+                            }
+                        })
+                    }
+                };
+    
+                // 从active_tasks中移除
+                {
+                    let mut active = active_tasks.lock().unwrap();
+                    match &task_type {
+                        TaskType::LoadFull | TaskType::CreateTiled => {
                             active.remove(&path);
                         }
-
-                        let send_start = Instant::now();
-                        let _ = result_tx.send(LoadResult::ImageReady {
-                            path: path.clone(),
-                            image: Arc::new(image),
-                        });
-                        let send_duration = send_start.elapsed();
-                        if send_duration.as_millis() > 100 {
-                            debug_log!(
-                                "[{:.3}s] [LOADER] 警告：发送结果耗时 {}ms",
-                                elapsed_ms() as f64 / 1000.0,
-                                send_duration.as_millis()
-                            );
+                        TaskType::LoadTile { col, row } => {
+                            let key = format!("{:?}_tile_{}_{}", path, col, row);
+                            active.remove(&PathBuf::from(key));
                         }
+                    }
+                }
+    
+                match result {
+                    Ok(load_result) => {
+                        let duration = start.elapsed();
+                        debug_log!(
+                            "[{:.3}s] [LOADER] 完成: {:?} ({}ms)",
+                            elapsed_ms() as f64 / 1000.0,
+                            path.file_name(),
+                            duration.as_millis()
+                        );
+                        let _ = result_tx.send(load_result);
                     }
                     Err(e) => {
                         debug_log!(
-                            "[{:.3}s] [LOADER] 解码失败: {:?}, error={}",
+                            "[{:.3}s] [LOADER] 失败: {:?}, error={}",
                             elapsed_ms() as f64 / 1000.0,
                             path.file_name(),
                             e
                         );
-
-                        // 从active_tasks中移除
-                        {
-                            let mut active = active_tasks.lock().unwrap();
-                            active.remove(&path);
-                        }
-
                         let _ = result_tx.send(LoadResult::Error {
                             path,
-                            error: String::from("Failed to decode"),
+                            error: e.to_string(),
                         });
                     }
                 }
@@ -376,5 +552,128 @@ fn decode_image_file(
         width,
         height,
     })
+}
+
+/// 创建分块图片元数据（不加载实际像素数据）
+fn create_tiled_image_meta(
+    path: &PathBuf,
+) -> Result<TiledImage, Box<dyn std::error::Error + Send + Sync>> {
+    use image::{GenericImageView, ImageReader, ImageDecoder};
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = File::open(path)?;
+    let reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+
+    let (width, height) = img.dimensions();
+    
+    // 定义块大小
+    let tile_size = 1024;
+    
+    // 计算需要的行列数
+    let cols = (width + tile_size - 1) / tile_size;
+    let rows = (height + tile_size - 1) / tile_size;
+    
+    // 创建缩略图（最大边长512px）
+    let max_thumb_size = 512;
+    let scale = (max_thumb_size as f32 / width.max(height) as f32).min(1.0);
+    let thumb_w = (width as f32 * scale) as u32;
+    let thumb_h = (height as f32 * scale) as u32;
+    
+    // 使用 Nearest 快速生成缩略图（质量足够用于预览）
+    let thumbnail_img = img.resize(thumb_w, thumb_h, image::imageops::FilterType::Nearest);
+    
+    // 获取实际的缩略图尺寸（resize 可能会调整）
+    let (actual_thumb_w, actual_thumb_h) = thumbnail_img.dimensions();
+    
+    let thumb_rgba = thumbnail_img.into_rgba8();
+    let thumb_data = thumb_rgba.into_raw();
+    
+    debug_log!(
+        "[{:.3}s] [LOADER] 缩略图: {}x{} -> {}x{}, 数据长度: {}",
+        elapsed_ms() as f64 / 1000.0,
+        width, height,
+        actual_thumb_w, actual_thumb_h,
+        thumb_data.len()
+    );
+    
+    let thumbnail = Arc::new(DecodedImage {
+        data: thumb_data,
+        width: actual_thumb_w,
+        height: actual_thumb_h,
+    });
+    
+    // 创建空的块信息
+    let mut tiles = Vec::new();
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = col * tile_size;
+            let y = row * tile_size;
+            let w = tile_size.min(width - x);
+            let h = tile_size.min(height - y);
+            
+            tiles.push(TileInfo {
+                col,
+                row,
+                x,
+                y,
+                width: w,
+                height: h,
+                loaded: false,
+            });
+        }
+    }
+    
+    Ok(TiledImage {
+        width,
+        height,
+        thumbnail,
+        tiles,
+        tile_size,
+        cols,
+        rows,
+    })
+}
+
+/// 解码单个块
+fn decode_tile(
+    path: &PathBuf,
+    col: u32,
+    row: u32,
+    tile_size: u32,
+) -> Result<(Vec<u8>, u32, u32, u32, u32), Box<dyn std::error::Error + Send + Sync>> {
+    use image::{GenericImageView, ImageReader, ImageDecoder};
+    use std::fs::File;
+    use std::io::BufReader;
+
+    let file = File::open(path)?;
+    let reader = ImageReader::new(BufReader::new(file)).with_guessed_format()?;
+
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
+
+    let mut img = image::DynamicImage::from_decoder(decoder)?;
+    img.apply_orientation(orientation);
+
+    let (width, height) = img.dimensions();
+    
+    // 计算块的位置和尺寸
+    let x = col * tile_size;
+    let y = row * tile_size;
+    let w = tile_size.min(width - x);
+    let h = tile_size.min(height - y);
+    
+    // 裁剪出对应的块
+    let tile_img = img.crop_imm(x, y, w, h);
+    let tile_rgba = tile_img.into_rgba8();
+    let tile_data = tile_rgba.into_raw();
+    
+    Ok((tile_data, w, h, x, y))
 }
 
