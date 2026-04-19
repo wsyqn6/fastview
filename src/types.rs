@@ -70,11 +70,14 @@ pub struct TileInfo {
     pub col: u32,
     pub row: u32,
     /// 块在原始图片中的位置和尺寸
+    #[allow(dead_code)]
     pub x: u32,
+    #[allow(dead_code)]
     pub y: u32,
     pub width: u32,
     pub height: u32,
     /// 是否已加载到纹理
+    #[allow(dead_code)]
     pub loaded: bool,
 }
 

@@ -194,13 +194,11 @@ impl FastViewApp {
     /// 按需生成导航缩略图纹理
     fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
         // 检查是否已有缓存的缩略图纹理
-        if let Some((cached_path, texture)) = &self.nav_thumbnail {
-            if let Some(ref current_path) = self.current_path {
-                if cached_path == current_path {
+        if let Some((cached_path, texture)) = &self.nav_thumbnail
+            && let Some(ref current_path) = self.current_path
+                && cached_path == current_path {
                     return Some(texture.clone());
                 }
-            }
-        }
 
         // 没有缓存或路径变化，从图片缓存中获取数据生成缩略图
         if let Some(ref path) = self.current_path {
@@ -529,8 +527,8 @@ impl FastViewApp {
         };
 
         // 需要扫描目录
-        if need_rescan {
-            if let Some(parent) = path.parent() {
+        if need_rescan
+            && let Some(parent) = path.parent() {
                 debug_log!(
                     "[{:.3}s] [APP] 触发目录扫描: {:?}",
                     elapsed_ms() as f64 / 1000.0,
@@ -548,7 +546,6 @@ impl FastViewApp {
                 }
                 // 注意：此时不设置 current_images，等待扫描结果返回后再更新
             }
-        }
     }
 
     /// 预加载相邻图片(智能方向性预加载)
@@ -654,8 +651,8 @@ impl FastViewApp {
 
     /// 请求加载可见区域的块
     fn request_visible_tiles(&mut self, ctx: &egui::Context) {
-        if let Some(ref tiled) = self.tiled_image {
-            if let Some(ref path) = self.current_path {
+        if let Some(ref tiled) = self.tiled_image
+            && let Some(ref path) = self.current_path {
                 // 计算当前可见区域对应的块
                 let available = ctx.content_rect().size();
                 
@@ -721,7 +718,6 @@ impl FastViewApp {
                     }
                 }
             }
-        }
     }
 
     /// 渲染已加载的块
@@ -1179,7 +1175,7 @@ impl eframe::App for FastViewApp {
                             ui.ctx().request_repaint();
                         }
                     }
-                    LoadResult::TileReady { path, col, row, data, width, height, x, y } => {
+                    LoadResult::TileReady { path, col, row, data, width, height, x: _, y: _ } => {
                         debug_log!(
                             "[{:.3}s] [APP] 收到块: {:?} ({},{}) - {}x{}",
                             elapsed_ms() as f64 / 1000.0,
@@ -1207,12 +1203,6 @@ impl eframe::App for FastViewApp {
 
                             // 存储纹理
                             self.tile_textures.insert((col, row), texture);
-
-                            // 更新分块图片中的块状态
-                            if let Some(ref mut tiled) = self.tiled_image {
-                                // 由于 Arc 是不可变的，我们需要使用 Arc::make_mut 或者重新设计
-                                // 这里我们简单地标记为已加载（实际上在渲染时检查 tile_textures）
-                            }
 
                             ui.ctx().request_repaint();
                         }
@@ -1356,11 +1346,11 @@ impl eframe::App for FastViewApp {
                     ui.put(absolute_rect, image);
 
                     // 如果是分块图片，渲染已加载的块
-                    if self.tiled_image.is_some() {
+                    if let Some(ref tiled) = self.tiled_image {
                         // 对于分块图片，我们需要使用原始图片尺寸来计算缩放比例
                         let original_size = egui::vec2(
-                            self.tiled_image.as_ref().unwrap().width as f32,
-                            self.tiled_image.as_ref().unwrap().height as f32,
+                            tiled.width as f32,
+                            tiled.height as f32,
                         );
                         self.render_tiles(ui, absolute_rect, size, original_size, available, self.rotation);
                     }
@@ -1402,8 +1392,8 @@ impl eframe::App for FastViewApp {
                     }
 
                     // 显示缩略图导航（按需生成）
-                    if need_navigation {
-                        if let Some(thumb_tex) = self.get_or_create_nav_thumbnail(ui) {
+                    if need_navigation
+                        && let Some(thumb_tex) = self.get_or_create_nav_thumbnail(ui) {
                         let img_ratio = self.image_size.x / self.image_size.y;
 
                         // 缩略图尺寸：保持宽高比，最大边120px
@@ -1551,7 +1541,6 @@ impl eframe::App for FastViewApp {
                                 }
                             });
                         }
-                    }
                 } else if self.current_path.is_some() {
                     // Loading 状态：保持深色背景，不显示任何内容
                 } else {

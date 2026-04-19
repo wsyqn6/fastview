@@ -26,6 +26,7 @@ pub enum LoadPriority {
 /// 发送给后台线程的命令
 pub enum LoadCommand {
     /// 加载指定路径的图片
+    #[allow(dead_code)]
     Load {
         path: PathBuf,
         priority: LoadPriority,
@@ -123,7 +124,7 @@ impl ImageLoader {
             .map(|n| n.get())
             .unwrap_or(4);
         // 使用 CPU 核心数，但不超过 8 个线程（避免过度并发）
-        let num_threads = num_cpus.min(8).max(2);
+        let num_threads = num_cpus.clamp(2, 8);
         
         debug_log!("[LOADER] 初始化线程池: {} 个线程 (CPU核心数: {})", num_threads, num_cpus);
         
@@ -577,8 +578,8 @@ fn create_tiled_image_meta(
     let tile_size = 1024;
     
     // 计算需要的行列数
-    let cols = (width + tile_size - 1) / tile_size;
-    let rows = (height + tile_size - 1) / tile_size;
+    let cols = width.div_ceil(tile_size);
+    let rows = height.div_ceil(tile_size);
     
     // 创建缩略图（最大边长512px）
     let max_thumb_size = 512;
@@ -641,13 +642,16 @@ fn create_tiled_image_meta(
     })
 }
 
+/// 解码单个块的结果类型
+type TileDecodeResult = (Vec<u8>, u32, u32, u32, u32);
+
 /// 解码单个块
 fn decode_tile(
     path: &PathBuf,
     col: u32,
     row: u32,
     tile_size: u32,
-) -> Result<(Vec<u8>, u32, u32, u32, u32), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<TileDecodeResult, Box<dyn std::error::Error + Send + Sync>> {
     use image::{GenericImageView, ImageReader, ImageDecoder};
     use std::fs::File;
     use std::io::BufReader;
