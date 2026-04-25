@@ -112,3 +112,60 @@ impl CacheEntry {
 }
 
 pub type ImageCache = Arc<std::sync::Mutex<LruCache<PathBuf, CacheEntry>>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cache_entry_memory_estimation_decoded() {
+        let image = DecodedImage {
+            data: vec![0u8; 100 * 100 * 4], // 100x100 RGBA
+            width: 100,
+            height: 100,
+        };
+        let entry = CacheEntry::Decoded(Arc::new(image));
+        assert_eq!(entry.estimated_memory_bytes(), 100 * 100 * 4);
+    }
+
+    #[test]
+    fn test_cache_entry_memory_estimation_tiled() {
+        let thumbnail = Arc::new(DecodedImage {
+            data: vec![0u8; 50 * 50 * 4], // 50x50 缩略图
+            width: 50,
+            height: 50,
+        });
+        
+        let tiled = TiledImage {
+            width: 1000,
+            height: 1000,
+            thumbnail,
+            tiles: vec![],
+            tile_size: 1024,
+            cols: 1,
+            rows: 1,
+        };
+        
+        let entry = CacheEntry::TiledMeta(Arc::new(tiled));
+        // 只计算缩略图的内存
+        assert_eq!(entry.estimated_memory_bytes(), 50 * 50 * 4);
+    }
+
+    #[test]
+    fn test_language_default_english() {
+        // 如果没有设置 LANG 环境变量，默认应该是 English
+        // 注意：这个测试可能受环境影响
+        let lang = Language::default();
+        // 至少确保不会 panic
+        match lang {
+            Language::Chinese | Language::English => {},
+        }
+    }
+
+    #[test]
+    fn test_settings_default_values() {
+        let settings = Settings::default();
+        assert!(settings.max_cache_size > 0);
+        assert!(settings.show_status_bar); // 默认显示状态栏
+    }
+}

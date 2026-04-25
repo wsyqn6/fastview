@@ -8,6 +8,7 @@ use crate::fonts::setup_fonts;
 use crate::i18n::TextKey;
 use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
 use crate::types::{CacheEntry, ImageCache, Language, Settings, ZoomMode, TiledImage};
+use crate::utils::lock_or_recover;
 
 // 全局启动时间（用于相对时间日志）
 static START_TIME: once_cell::sync::Lazy<Instant> = once_cell::sync::Lazy::new(Instant::now);
@@ -49,7 +50,8 @@ pub struct FastViewApp {
     pub settings: Settings,
     pub show_settings: bool,
     pub file_size: u64,   // 文件大小（字节）
-    pub show_about: bool, // 控制"关于"对话框显示
+    pub show_about: bool, // 控制“关于”对话框显示
+    pub load_error: Option<String>, // 加载错误信息
 
     // 窗口打开顺序栈，用于ESC键后开先关逻辑
     window_stack: Vec<WindowType>,
@@ -74,6 +76,7 @@ pub struct FastViewApp {
 impl Default for FastViewApp {
     fn default() -> Self {
         use lru::LruCache;
+        use crate::utils::to_non_zero_usize;
 
         Self {
             texture: None,
@@ -92,11 +95,12 @@ impl Default for FastViewApp {
             is_fullscreen: false,
             is_borderless: false,
             current_scale: 1.0,
-            image_cache: Arc::new(std::sync::Mutex::new(LruCache::new(5.try_into().unwrap()))),
+            image_cache: Arc::new(std::sync::Mutex::new(LruCache::new(to_non_zero_usize(5, 10)))),
             settings: Settings::default(),
             show_settings: false,
             file_size: 0,
             show_about: false,
+            load_error: None,
             window_stack: Vec::new(),
             dir_cache: None,
             cmd_tx: None,
@@ -134,11 +138,22 @@ impl FastViewApp {
     fn load_settings(&mut self) {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("fastview").join("settings.json");
-            if config_path.exists()
-                && let Ok(content) = std::fs::read_to_string(&config_path)
-                && let Ok(settings) = serde_json::from_str(&content)
-            {
-                self.settings = settings;
+            if config_path.exists() {
+                match std::fs::read_to_string(&config_path) {
+                    Ok(content) => {
+                        match serde_json::from_str(&content) {
+                            Ok(settings) => {
+                                self.settings = settings;
+                            }
+                            Err(e) => {
+                                eprintln!("[WARN] Failed to parse settings file, using defaults: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[WARN] Failed to read settings file: {}", e);
+                    }
+                }
             }
         }
     }
@@ -147,18 +162,29 @@ impl FastViewApp {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("fastview").join("settings.json");
             if let Some(parent) = config_path.parent() {
-                std::fs::create_dir_all(parent).ok();
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    eprintln!("[ERROR] Failed to create config directory: {}", e);
+                    return;
+                }
             }
-            if let Ok(content) = serde_json::to_string_pretty(&self.settings) {
-                std::fs::write(&config_path, content).ok();
+            match serde_json::to_string_pretty(&self.settings) {
+                Ok(content) => {
+                    if let Err(e) = std::fs::write(&config_path, content) {
+                        eprintln!("[ERROR] Failed to save settings: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to serialize settings: {}", e);
+                }
             }
         }
 
         // 更新 LRU 缓存大小
         let new_capacity = self.settings.max_cache_size;
         if let Ok(mut cache) = self.image_cache.lock() {
+            use crate::utils::to_non_zero_usize;
             // LRU 不支持动态调整大小，需要重建
-            let mut new_cache = lru::LruCache::new(new_capacity.try_into().unwrap());
+            let mut new_cache = lru::LruCache::new(to_non_zero_usize(new_capacity, 10));
             // 保留最近的项目
             for (key, value) in cache.iter() {
                 new_cache.put(key.clone(), value.clone());
@@ -204,7 +230,7 @@ impl FastViewApp {
         if let Some(ref path) = self.current_path {
             // 尝试从缓存中获取图片数据
             if let Some(cached) = {
-                let mut cache_guard = self.image_cache.lock().unwrap();
+                let mut cache_guard = lock_or_recover(&self.image_cache);
                 cache_guard.get(path).cloned()
             } {
                 match cached {
@@ -310,7 +336,7 @@ impl FastViewApp {
 
                 // 将解码后的数据重新放回缓存（因为 entry 被移动了）
                 {
-                    let mut cache_guard = self.image_cache.lock().unwrap();
+                    let mut cache_guard = lock_or_recover(&self.image_cache);
                     cache_guard.put(path.clone(), CacheEntry::Decoded(image));
                 }
             }
@@ -339,7 +365,7 @@ impl FastViewApp {
 
                 // 将分块图片数据重新放回缓存
                 {
-                    let mut cache_guard = self.image_cache.lock().unwrap();
+                    let mut cache_guard = lock_or_recover(&self.image_cache);
                     cache_guard.put(path.clone(), CacheEntry::TiledMeta(tiled));
                 }
                 
@@ -557,7 +583,7 @@ impl FastViewApp {
         // 检查当前图片是否已在缓存中（已加载完成）
         let current_loaded = {
             if let Some(ref path) = self.current_path {
-                let cache_guard = self.image_cache.lock().unwrap();
+                let cache_guard = lock_or_recover(&self.image_cache);
                 cache_guard.contains(path)
             } else {
                 false
@@ -581,7 +607,7 @@ impl FastViewApp {
         let next3_idx = self.current_index + 3;
 
         // 检查缓存，只预加载未缓存的图片
-        let cache_guard = self.image_cache.lock().unwrap();
+        let cache_guard = lock_or_recover(&self.image_cache);
 
         // 1. 预加载下一张（最高优先级）
         if next_idx < self.current_images.len() {
@@ -1076,7 +1102,7 @@ impl eframe::App for FastViewApp {
 
                             // 将解码后的数据放入缓存（供导航缩略图使用）
                             {
-                                let mut cache_guard = self.image_cache.lock().unwrap();
+                                let mut cache_guard = lock_or_recover(&self.image_cache);
                                 let memory_bytes = (image.width * image.height * 4) as usize;
                                 self.evict_if_needed(&mut cache_guard, memory_bytes);
                                 cache_guard.put(path.clone(), CacheEntry::Decoded(image));
@@ -1095,7 +1121,7 @@ impl eframe::App for FastViewApp {
                                 path.file_name()
                             );
 
-                            let mut cache_guard = self.image_cache.lock().unwrap();
+                            let mut cache_guard = lock_or_recover(&self.image_cache);
                             let memory_bytes = (image.width * image.height * 4) as usize;
 
                             // 内存检查和淘汰
@@ -1160,7 +1186,7 @@ impl eframe::App for FastViewApp {
                         if is_current {
                             // 将分块图片元数据存入缓存
                             {
-                                let mut cache_guard = self.image_cache.lock().unwrap();
+                                let mut cache_guard = lock_or_recover(&self.image_cache);
                                 let memory_bytes = (tiled_image.thumbnail.width * tiled_image.thumbnail.height * 4) as usize;
                                 self.evict_if_needed(&mut cache_guard, memory_bytes);
                                 cache_guard.put(path.clone(), CacheEntry::TiledMeta(tiled_image.clone()));
@@ -1207,7 +1233,26 @@ impl eframe::App for FastViewApp {
                             ui.ctx().request_repaint();
                         }
                     }
-                    _ => {} // 忽略其他结果类型
+                    LoadResult::Error { path, error } => {
+                        debug_log!(
+                            "[{:.3}s] [APP] 加载失败: {:?}, error={}",
+                            elapsed_ms() as f64 / 1000.0,
+                            path.file_name(),
+                            error
+                        );
+                        
+                        // 如果是当前图片，显示错误
+                        if self.current_path.as_ref() == Some(&path) {
+                            self.load_error = Some(format!(
+                                "Failed to load {}: {}",
+                                path.file_name()
+                                    .map(|s| s.to_string_lossy().to_string())
+                                    .unwrap_or_default(),
+                                error
+                            ));
+                            ui.ctx().request_repaint();
+                        }
+                    }
                 }
             }
         }
@@ -1542,7 +1587,39 @@ impl eframe::App for FastViewApp {
                             });
                         }
                 } else if self.current_path.is_some() {
-                    // Loading 状态：保持深色背景，不显示任何内容
+                    // Loading 状态或错误状态
+                    if let Some(ref error_msg) = self.load_error {
+                        // 显示错误信息
+                        let current_path = self.current_path.clone();
+                        let error_message = error_msg.clone(); // 克隆以避免借用冲突
+                        egui::Area::new(egui::Id::new("error_message"))
+                            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                            .show(ui.ctx(), |ui| {
+                                ui.vertical_centered(|ui| {
+                                    ui.add_space(40.0);
+                                    ui.label(
+                                        egui::RichText::new("❌ Load Error")
+                                            .size(16.0)
+                                            .color(egui::Color32::RED),
+                                    );
+                                    ui.add_space(10.0);
+                                    ui.label(
+                                        egui::RichText::new(&error_message)
+                                            .size(12.0)
+                                            .color(egui::Color32::WHITE),
+                                    );
+                                    ui.add_space(20.0);
+                                    if ui.button("Retry").clicked() {
+                                        // 重新加载当前图片
+                                        if let Some(ref path) = current_path {
+                                            self.load_error = None;
+                                            self.load_image(path, ui.ctx()).ok();
+                                        }
+                                    }
+                                });
+                            });
+                    }
+                    // 否则保持深色背景，不显示任何内容
                 } else {
                     // 真正的初始状态:没有加载任何图片
                     egui::Area::new(egui::Id::new("welcome_area"))

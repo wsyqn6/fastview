@@ -3,6 +3,7 @@ mod fonts;
 mod i18n;
 mod loader;
 mod types;
+mod utils;
 
 use app::FastViewApp;
 use eframe::egui;

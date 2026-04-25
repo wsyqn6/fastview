@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use crate::debug_log;
 use crate::types::{DecodedImage, TiledImage, TileInfo};
+use crate::utils::lock_or_recover;
 use rayon::ThreadPool;
 
 // 全局启动时间（用于相对时间日志）
@@ -133,13 +134,20 @@ impl ImageLoader {
                 .num_threads(num_threads)
                 .thread_name(|i| format!("image-loader-{}", i))
                 .build()
-                .expect("Failed to create thread pool"),
+                .unwrap_or_else(|e| {
+                    eprintln!("[ERROR] Failed to create thread pool: {}, falling back to single thread", e);
+                    // 降级为单线程执行
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(1)
+                        .build()
+                        .expect("Failed to create fallback thread pool")
+                })
         );
 
         let loader = Self {
             cmd_rx,
             result_tx,
-            cache: lru::LruCache::new(8.try_into().unwrap()),
+            cache: lru::LruCache::new(crate::utils::to_non_zero_usize(8, 10)),
             pending: VecDeque::new(),
             active_tasks: Arc::new(Mutex::new(HashSet::new())),
             pool,
@@ -201,7 +209,7 @@ impl ImageLoader {
 
         // 检查是否已经在执行中
         {
-            let active = self.active_tasks.lock().unwrap();
+            let active = lock_or_recover(&self.active_tasks);
             if active.contains(&path) {
                 debug_log!(
                     "[{:.3}s] [LOADER] 跳过重复任务（正在执行）: {:?}",
@@ -288,7 +296,7 @@ impl ImageLoader {
         // 检查是否已经在执行中
         let task_key = format!("{:?}_tiled", path);
         {
-            let active = self.active_tasks.lock().unwrap();
+            let active = lock_or_recover(&self.active_tasks);
             if active.contains(&PathBuf::from(&task_key)) {
                 return;
             }
@@ -314,7 +322,7 @@ impl ImageLoader {
         let task_key = format!("{:?}_tile_{}_{}", path, col, row);
         
         {
-            let active = self.active_tasks.lock().unwrap();
+            let active = lock_or_recover(&self.active_tasks);
             if active.contains(&PathBuf::from(&task_key)) {
                 debug_log!(
                     "[{:.3}s] [LOADER] 跳过重复块加载: {:?} ({},{})",
@@ -368,7 +376,7 @@ impl ImageLoader {
     
             // 标记为正在执行
             {
-                let mut active = active_tasks.lock().unwrap();
+                let mut active = lock_or_recover(&active_tasks);
                 match &task_type {
                     TaskType::LoadFull | TaskType::CreateTiled => {
                         active.insert(path.clone());
@@ -424,9 +432,9 @@ impl ImageLoader {
                     }
                 };
     
-                // 从active_tasks中移除
+                // 从 active_tasks 中移除
                 {
-                    let mut active = active_tasks.lock().unwrap();
+                    let mut active = lock_or_recover(&active_tasks);
                     match &task_type {
                         TaskType::LoadFull | TaskType::CreateTiled => {
                             active.remove(&path);
@@ -679,5 +687,26 @@ fn decode_tile(
     let tile_data = tile_rgba.into_raw();
     
     Ok((tile_data, w, h, x, y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_priority_ordering() {
+        // 测试优先级排序：Critical > High > Low
+        assert!(LoadPriority::Critical > LoadPriority::High);
+        assert!(LoadPriority::High > LoadPriority::Low);
+        assert_eq!(LoadPriority::Low, LoadPriority::Low);
+    }
+
+    #[test]
+    fn test_task_type_variants() {
+        // 确保所有 TaskType 变体都能正确创建
+        let _full = TaskType::LoadFull;
+        let _tile = TaskType::LoadTile { col: 0, row: 0 };
+        let _tiled = TaskType::CreateTiled;
+    }
 }
 
