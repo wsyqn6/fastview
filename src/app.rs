@@ -9,6 +9,7 @@ use crate::i18n::TextKey;
 use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
 use crate::types::{CacheEntry, ImageCache, Language, Settings, ZoomMode, TiledImage};
 use crate::utils::lock_or_recover;
+use crate::{log_error, log_warn};
 
 // 全局启动时间（用于相对时间日志）
 static START_TIME: once_cell::sync::Lazy<Instant> = once_cell::sync::Lazy::new(Instant::now);
@@ -146,12 +147,12 @@ impl FastViewApp {
                                 self.settings = settings;
                             }
                             Err(e) => {
-                                eprintln!("[WARN] Failed to parse settings file, using defaults: {}", e);
+                                log_warn!("Failed to parse settings file, using defaults: {}", e);
                             }
                         }
                     }
                     Err(e) => {
-                        eprintln!("[WARN] Failed to read settings file: {}", e);
+                        log_warn!("Failed to read settings file: {}", e);
                     }
                 }
             }
@@ -163,18 +164,18 @@ impl FastViewApp {
             let config_path = config_dir.join("fastview").join("settings.json");
             if let Some(parent) = config_path.parent() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
-                    eprintln!("[ERROR] Failed to create config directory: {}", e);
+                    log_error!("Failed to create config directory: {}", e);
                     return;
                 }
             }
             match serde_json::to_string_pretty(&self.settings) {
                 Ok(content) => {
                     if let Err(e) = std::fs::write(&config_path, content) {
-                        eprintln!("[ERROR] Failed to save settings: {}", e);
+                        log_error!("Failed to save settings: {}", e);
                     }
                 }
                 Err(e) => {
-                    eprintln!("[ERROR] Failed to serialize settings: {}", e);
+                    log_error!("Failed to serialize settings: {}", e);
                 }
             }
         }
@@ -282,7 +283,7 @@ impl FastViewApp {
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
         // 1. 优先检查缓存
         if let Some(cached) = {
-            let mut cache_guard = self.image_cache.lock().unwrap();
+            let mut cache_guard = lock_or_recover(&self.image_cache);
             cache_guard.get(path).cloned()
         } {
             // 缓存命中,立即应用
@@ -858,6 +859,28 @@ impl FastViewApp {
                 break; // 内存充足
             }
         }
+    }
+}
+
+impl Drop for FastViewApp {
+    fn drop(&mut self) {
+        // 优雅关闭后台加载器线程
+        if let Some(handle) = self.loader_handle.take() {
+            debug_log!("[APP] Shutting down image loader thread...");
+            
+            // 注意:当前 loader 没有 Shutdown 命令,线程会在 channel 关闭后自动退出
+            // 这里我们简单地 detach,让线程自然结束
+            drop(handle);
+            
+            debug_log!("[APP] Loader thread detached");
+        }
+        
+        // 清理纹理资源
+        self.texture = None;
+        self.nav_thumbnail = None;
+        self.tile_textures.clear();
+        
+        debug_log!("[APP] FastViewApp resources cleaned up");
     }
 }
 

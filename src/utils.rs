@@ -4,6 +4,32 @@
 
 use std::sync::{Mutex, MutexGuard};
 
+/// Release 模式下的警告日志宏
+/// 
+/// 在 debug 模式下输出到 stderr,
+/// 在 release 模式下可以选择性地记录或忽略
+#[macro_export]
+macro_rules! log_warn {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        eprintln!("[WARN] {}", format!($($arg)*));
+        
+        #[cfg(not(debug_assertions))]
+        {
+            // Release 模式下可选:写入日志文件或仅记录关键错误
+            // 当前实现:静默忽略非关键警告
+        }
+    };
+}
+
+/// Release 模式下的错误日志宏(始终输出)
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => {
+        eprintln!("[ERROR] {}", format!($($arg)*));
+    };
+}
+
 /// 安全地获取 Mutex 锁,如果锁中毒则恢复数据并记录警告
 /// 
 /// # 参数
@@ -22,7 +48,7 @@ use std::sync::{Mutex, MutexGuard};
 /// 且程序应该继续运行而不是崩溃。
 pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| {
-        eprintln!("[WARN] Mutex poisoned, recovering data");
+        log_warn!("Mutex poisoned, recovering data");
         poisoned.into_inner()
     })
 }

@@ -7,6 +7,7 @@ use std::time::Instant;
 use crate::debug_log;
 use crate::types::{DecodedImage, TiledImage, TileInfo};
 use crate::utils::lock_or_recover;
+use crate::log_error;
 use rayon::ThreadPool;
 
 // 全局启动时间（用于相对时间日志）
@@ -135,7 +136,7 @@ impl ImageLoader {
                 .thread_name(|i| format!("image-loader-{}", i))
                 .build()
                 .unwrap_or_else(|e| {
-                    eprintln!("[ERROR] Failed to create thread pool: {}, falling back to single thread", e);
+                    log_error!("Failed to create thread pool: {}, falling back to single thread", e);
                     // 降级为单线程执行
                     rayon::ThreadPoolBuilder::new()
                         .num_threads(1)
