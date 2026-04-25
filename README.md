@@ -3,7 +3,7 @@
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.2.7-blue.svg)](https://github.com/wsyqn6/fastview/releases)
+[![Version](https://img.shields.io/badge/version-0.2.8-blue.svg)](https://github.com/wsyqn6/fastview/releases)
 [![Website](https://img.shields.io/badge/Website-wsyqn6.github.io/fastview-00d4ff)](https://wsyqn6.github.io/fastview)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-blue.svg)](https://github.com/)
@@ -97,18 +97,42 @@ Download the latest release from the [Releases page](https://github.com/wsyqn6/f
 ```
 fastview/
 ├── src/
-│   ├── main.rs      # Application entry point
-│   ├── app.rs       # Main application logic and UI
-│   ├── types.rs     # Type definitions
-│   ├── fonts.rs     # Font loading (Chinese support)
-│   ├── loader.rs    # Image loading with tiled support
-│   └── i18n.rs      # Internationalization
+│   ├── lib.rs           # Library root with module declarations
+│   ├── main.rs          # Application entry point
+│   ├── app.rs           # Main application logic
+│   ├── utils.rs         # Utility macros and functions
+│   │
+│   ├── core/            # Core business logic
+│   │   ├── types.rs     # Type definitions
+│   │   ├── i18n.rs      # Internationalization
+│   │   ├── loader.rs    # Image loading with tiled support
+│   │   └── thumbnail.rs # Thumbnail generation
+│   │
+│   ├── handler/         # Event handlers
+│   │   ├── events.rs    # Async event processing
+│   │   └── keyboard.rs  # Keyboard shortcuts
+│   │
+│   ├── operation/       # Business operations
+│   │   ├── navigation.rs    # Image navigation
+│   │   ├── image_ops.rs     # Zoom, rotate, fullscreen
+│   │   ├── tile_renderer.rs # Tiled image rendering
+│   │   └── cache_manager.rs # Image cache management
+│   │
+│   └── ui/              # UI rendering
+│       ├── fonts.rs         # Font loading (Chinese support)
+│       ├── menu.rs          # Menu bar
+│       ├── status.rs        # Status bar
+│       ├── image.rs         # Main image display
+│       ├── dialogs.rs       # Dialog windows
+│       ├── lifecycle.rs     # UI lifecycle management
+│       └── thumbnail_manager.rs # Thumbnail navigation
+│
 ├── examples/
 │   └── generate_test_image.rs  # Test image generator
 ├── .github/workflows/  # CI/CD pipelines
-├── Cargo.toml       # Rust package manifest
-├── LICENSE          # MIT License
-└── README.md        # This file
+├── Cargo.toml          # Rust package manifest
+├── LICENSE             # MIT License
+└── README.md           # This file
 ```
 
 ### 🤝 Contributing
@@ -212,18 +236,42 @@ cargo build --release
 ```
 fastview/
 ├── src/
-│   ├── main.rs      # 程序入口
-│   ├── app.rs       # 主应用逻辑和 UI
-│   ├── types.rs     # 类型定义
-│   ├── fonts.rs     # 字体加载（中文支持）
-│   ├── loader.rs    # 图片加载（含分块支持）
-│   └── i18n.rs      # 国际化
+│   ├── lib.rs           # 库根模块，集中声明所有子模块
+│   ├── main.rs          # 程序入口
+│   ├── app.rs           # 主应用逻辑
+│   ├── utils.rs         # 工具宏和函数
+│   │
+│   ├── core/            # 核心业务逻辑
+│   │   ├── types.rs     # 类型定义
+│   │   ├── i18n.rs      # 国际化
+│   │   ├── loader.rs    # 图片加载（含分块支持）
+│   │   └── thumbnail.rs # 缩略图生成
+│   │
+│   ├── handler/         # 事件处理器
+│   │   ├── events.rs    # 异步事件处理
+│   │   └── keyboard.rs  # 键盘快捷键
+│   │
+│   ├── operation/       # 业务操作
+│   │   ├── navigation.rs    # 图片导航
+│   │   ├── image_ops.rs     # 缩放、旋转、全屏
+│   │   ├── tile_renderer.rs # 分块图片渲染
+│   │   └── cache_manager.rs # 图片缓存管理
+│   │
+│   └── ui/              # UI 渲染
+│       ├── fonts.rs         # 字体加载（中文支持）
+│       ├── menu.rs          # 菜单栏
+│       ├── status.rs        # 状态栏
+│       ├── image.rs         # 主图片显示
+│       ├── dialogs.rs       # 对话框窗口
+│       ├── lifecycle.rs     # UI 生命周期管理
+│       └── thumbnail_manager.rs # 缩略图导航
+│
 ├── examples/
 │   └── generate_test_image.rs  # 测试图片生成工具
 ├── .github/workflows/  # CI/CD 流水线
-├── Cargo.toml       # Rust 包配置
-├── LICENSE          # MIT 许可证
-└── README.md        # 本文件
+├── Cargo.toml          # Rust 包配置
+├── LICENSE             # MIT 许可证
+└── README.md           # 本文件
 ```
 
 ### 🤝 贡献指南

@@ -14,11 +14,35 @@
 ## 📁 项目结构
 ```
 src/
-├── 🚀 main.rs      # 入口
-├── 🧠 app.rs       # 主逻辑
-├── 📐 types.rs     # 类型
-├── 🔤 fonts.rs     # 字体
-└── 🌐 i18n.rs      # 文案
+├── 🚀 lib.rs           # 库根，集中模块声明
+├── 🚀 main.rs          # 程序入口
+├── 🧠 app.rs           # 主应用逻辑
+├── 🔧 utils.rs         # 工具宏和函数
+│
+├── core/               # 核心业务逻辑
+│   ├── types.rs        # 类型定义
+│   ├── i18n.rs         # 国际化
+│   ├── loader.rs       # 图片加载（分块支持）
+│   └── thumbnail.rs    # 缩略图生成
+│
+├── handler/            # 事件处理器
+│   ├── events.rs       # 异步事件处理
+│   └── keyboard.rs     # 键盘快捷键
+│
+├── operation/          # 业务操作
+│   ├── navigation.rs       # 图片导航
+│   ├── image_ops.rs        # 缩放、旋转、全屏
+│   ├── tile_renderer.rs    # 分块渲染
+│   └── cache_manager.rs    # 缓存管理
+│
+└── ui/                 # UI 渲染
+    ├── fonts.rs            # 字体加载
+    ├── menu.rs             # 菜单栏
+    ├── status.rs           # 状态栏
+    ├── image.rs            # 主图片显示
+    ├── dialogs.rs          # 对话框
+    ├── lifecycle.rs        # UI 生命周期
+    └── thumbnail_manager.rs # 缩略图导航
 ```
 
 ## ⌨️ 快捷键
