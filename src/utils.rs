@@ -15,13 +15,13 @@ macro_rules! log_warn {
 
         #[cfg(not(debug_assertions))]
         {
-            // Release 模式下可选:写入日志文件或仅记录关键错误
-            // 当前实现:静默忽略非关键警告
+            // Release 模式下可选：写入日志文件或仅记录关键错误
+            // 当前实现：静默忽略非关键警告
         }
     };
 }
 
-/// Release 模式下的错误日志宏(始终输出)
+/// Release 模式下的错误日志宏（始终输出）
 #[macro_export]
 macro_rules! log_error {
     ($($arg:tt)*) => {
@@ -29,7 +29,7 @@ macro_rules! log_error {
     };
 }
 
-/// 安全地获取 Mutex 锁,如果锁中毒则恢复数据并记录警告
+/// 安全地获取 Mutex 锁（如果锁中毒则恢复数据并记录警告）
 ///
 /// # 参数
 /// * `mutex` - 要锁定的 Mutex
@@ -38,12 +38,12 @@ macro_rules! log_error {
 /// * `MutexGuard<T>` - 锁守卫
 ///
 /// # 安全性
-/// 当锁中毒时(持有锁的线程 panic),此函数会:
+/// 当锁中毒时（持有锁的线程 panic），此函数会：
 /// 1. 记录警告日志
 /// 2. 从 PoisonError 中恢复数据
 /// 3. 返回有效的 MutexGuard
 ///
-/// 这适用于 GUI 应用中的缓存访问等场景,其中数据不一致的风险较低,
+/// 这适用于 GUI 应用中的缓存访问等场景，其中数据不一致的风险较低，
 /// 且程序应该继续运行而不是崩溃。
 pub fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| {
@@ -93,7 +93,7 @@ mod tests {
         // 等待线程 panic
         let _ = handle.join();
 
-        // 现在锁已中毒,但我们的函数应该能恢复
+        // 现在锁已中毒，但我们的函数应该能恢复
         let guard = lock_or_recover(&mutex);
         assert_eq!(*guard, 42);
     }

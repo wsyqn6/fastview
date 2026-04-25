@@ -1,7 +1,7 @@
 use eframe::egui;
 
+use crate::app::FastViewApp;
 use crate::core::{Language, Settings, TextKey};
-use crate::FastViewApp;
 
 /// 渲染所有对话框（设置、快捷键、关于）
 pub fn render_dialogs(app: &mut FastViewApp, ui: &mut egui::Ui) {

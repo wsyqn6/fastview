@@ -1,14 +1,13 @@
 use eframe::egui;
 use std::path::PathBuf;
 
-use crate::FastViewApp;
+use crate::app::FastViewApp;
 
 /// 处理全屏模式下的UI自动隐藏逻辑
 pub fn handle_fullscreen_ui(app: &mut FastViewApp, ui: &mut egui::Ui) {
     if app.is_fullscreen {
         let pointer_delta = ui.input(|i| i.pointer.delta());
-        let any_motion =
-            pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
+        let any_motion = pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
 
         if any_motion {
             app.last_mouse_move = std::time::Instant::now();
@@ -31,7 +30,7 @@ pub fn handle_fullscreen_ui(app: &mut FastViewApp, ui: &mut egui::Ui) {
 /// 处理异步加载后的后续操作（目录更新、预加载）
 pub fn handle_post_load_operations(
     app: &mut FastViewApp,
-    ui: &mut egui::Ui,
+    _ui: &mut egui::Ui,
     needs_prefetch: bool,
     path_for_dir_update: Option<PathBuf>,
 ) {
@@ -42,7 +41,7 @@ pub fn handle_post_load_operations(
 
     // 预加载相邻图片（在借用结束后）
     if needs_prefetch {
-        app.preload_adjacent_images(ui.ctx());
+        app.preload_adjacent_images();
     }
 }
 

@@ -4,9 +4,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::debug_log;
-use crate::log_error;
 use crate::core::types::{DecodedImage, TileInfo, TiledImage};
+use crate::log_error;
 use crate::utils::lock_or_recover;
 use rayon::ThreadPool;
 

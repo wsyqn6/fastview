@@ -2,8 +2,8 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::app::{elapsed_ms, DirectoryCache, FastViewApp};
-use crate::debug_log;
+use crate::app::{DirectoryCache, FastViewApp, elapsed_ms};
+
 use crate::core::{CacheEntry, LoadResult};
 use crate::utils::lock_or_recover;
 
@@ -64,7 +64,13 @@ pub fn handle_load_results(app: &mut FastViewApp, ui: &mut egui::Ui) -> (bool, O
                     handle_directory_scanned(app, ui, images);
                 }
                 LoadResult::TiledImageMetaReady { path, tiled_image } => {
-                    handle_tiled_meta_ready(app, ui, path.clone(), tiled_image, &mut needs_prefetch);
+                    handle_tiled_meta_ready(
+                        app,
+                        ui,
+                        path.clone(),
+                        tiled_image,
+                        &mut needs_prefetch,
+                    );
                     path_for_dir_update = Some(path);
                 }
                 LoadResult::TileReady {
@@ -161,10 +167,7 @@ fn handle_image_ready(
         app.image_size = image_size;
 
         // 重置缩放模式
-        debug_log!(
-            "[{:.3}s] [APP] 重置缩放模式",
-            elapsed_ms() as f64 / 1000.0
-        );
+        debug_log!("[{:.3}s] [APP] 重置缩放模式", elapsed_ms() as f64 / 1000.0);
         app.zoom_mode = crate::core::ZoomMode::Fit;
         app.zoom = 1.0;
         app.rotation = 0.0;
@@ -201,11 +204,7 @@ fn handle_image_ready(
 }
 
 /// 处理目录扫描完成
-fn handle_directory_scanned(
-    app: &mut FastViewApp,
-    ui: &mut egui::Ui,
-    images: Vec<PathBuf>,
-) {
+fn handle_directory_scanned(app: &mut FastViewApp, ui: &mut egui::Ui, images: Vec<PathBuf>) {
     debug_log!(
         "[{:.3}s] [APP] 目录扫描完成: {} 张图片",
         elapsed_ms() as f64 / 1000.0,
@@ -308,10 +307,8 @@ fn handle_tile_ready(
     if is_current {
         // 创建块纹理
         let texture_id = format!("tile_{:?}_{}_{}", path.file_name(), col, row);
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [width as usize, height as usize],
-            &data,
-        );
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &data);
         let texture = ui
             .ctx()
             .load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
@@ -324,12 +321,7 @@ fn handle_tile_ready(
 }
 
 /// 处理加载错误
-fn handle_load_error(
-    app: &mut FastViewApp,
-    ui: &mut egui::Ui,
-    path: PathBuf,
-    error: String,
-) {
+fn handle_load_error(app: &mut FastViewApp, ui: &mut egui::Ui, path: PathBuf, error: String) {
     debug_log!(
         "[{:.3}s] [APP] 加载失败: {:?}, error={}",
         elapsed_ms() as f64 / 1000.0,

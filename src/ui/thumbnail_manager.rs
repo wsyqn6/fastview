@@ -12,6 +12,12 @@ pub struct ThumbnailManager {
     pub bar: ThumbnailBar,
 }
 
+impl Default for ThumbnailManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThumbnailManager {
     pub fn new() -> Self {
         Self {

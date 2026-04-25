@@ -1,7 +1,7 @@
 use eframe::egui;
 
+use crate::app::FastViewApp;
 use crate::core::{TextKey, ZoomMode};
-use crate::FastViewApp;
 
 /// 渲染状态栏（悬浮半透明设计）
 pub fn render_status_bar(app: &mut FastViewApp, ui: &mut egui::Ui) {
@@ -38,12 +38,9 @@ pub fn render_status_bar(app: &mut FastViewApp, ui: &mut egui::Ui) {
                     ui.set_max_width(max_width);
 
                     // 使用 horizontal 布局，内容垂直居中对齐
-                    ui.with_layout(
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            render_status_content(ui, visuals, app);
-                        },
-                    );
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        render_status_content(ui, visuals, app);
+                    });
                 });
         });
 }

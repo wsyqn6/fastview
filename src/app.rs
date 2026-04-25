@@ -3,20 +3,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::debug_log;
-use crate::core::{ImageCache, LoadCommand, LoadPriority, LoadResult, Settings, TextKey, TiledImage, ZoomMode};
 use crate::core::loader::ImageLoader;
 use crate::core::types::CacheEntry;
+use crate::core::{ImageCache, LoadCommand, LoadResult, Settings, TextKey, TiledImage, ZoomMode};
+use crate::handler;
+use crate::handler::keyboard;
+use crate::ui::dialogs;
 use crate::ui::fonts::{setup_minimal_fonts, start_async_font_loader};
 use crate::ui::{render_menu_bar, render_status_content};
-use crate::handlers;
-use crate::handlers::keyboard;
-use crate::ui::dialogs;
 
+use crate::operation;
 use crate::ui::lifecycle;
-use crate::components::thumbnail_manager::ThumbnailManager;
-use crate::utils::lock_or_recover;
-use crate::{log_error, log_warn, perf_log};
+use crate::ui::thumbnail_manager::ThumbnailManager;
+use crate::{log_error, log_warn};
 
 // 全局启动时间（用于相对时间日志）
 static START_TIME: once_cell::sync::Lazy<Instant> = once_cell::sync::Lazy::new(Instant::now);
@@ -97,7 +96,7 @@ pub struct FastViewApp {
 
     // UI 自动隐藏逻辑
     pub(crate) last_mouse_move: std::time::Instant,
-    is_ui_visible: bool, // 控制全屏下菜单栏和状态栏的可见性
+    pub(crate) is_ui_visible: bool, // 控制全屏下菜单栏和状态栏的可见性
 
     // 分块图片相关
     pub(crate) tiled_image: Option<Arc<TiledImage>>,
@@ -166,7 +165,7 @@ impl FastViewApp {
             start_async_font_loader(font_ctx);
         });
 
-        let settings_handle = std::thread::spawn(|| load_settings_from_disk());
+        let settings_handle = std::thread::spawn(load_settings_from_disk);
 
         perf_log!("Parallel tasks started", t0);
 
@@ -198,27 +197,6 @@ impl FastViewApp {
         }));
         self.cmd_tx = Some(cmd_tx);
         self.result_rx = Some(result_rx);
-    }
-
-    fn load_settings(&mut self) {
-        if let Some(config_dir) = dirs::config_dir() {
-            let config_path = config_dir.join("fastview").join("settings.json");
-            if config_path.exists() {
-                match std::fs::read_to_string(&config_path) {
-                    Ok(content) => match serde_json::from_str(&content) {
-                        Ok(settings) => {
-                            self.settings = settings;
-                        }
-                        Err(e) => {
-                            log_warn!("Failed to parse settings file, using defaults: {}", e);
-                        }
-                    },
-                    Err(e) => {
-                        log_warn!("Failed to read settings file: {}", e);
-                    }
-                }
-            }
-        }
     }
 
     pub fn save_settings(&mut self) {
@@ -279,572 +257,68 @@ impl FastViewApp {
     }
 
     /// 按需生成导航缩略图纹理
-    pub(crate) fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
-        // 检查是否已有缓存的缩略图纹理
-        if let Some((cached_path, texture)) = &self.nav_thumbnail
-            && let Some(ref current_path) = self.current_path
-            && cached_path == current_path
-        {
-            return Some(texture.clone());
-        }
-
-        // 没有缓存或路径变化，从图片缓存中获取数据生成缩略图
-        if let Some(ref path) = self.current_path {
-            // 尝试从缓存中获取图片数据
-            if let Some(cached) = {
-                let mut cache_guard = lock_or_recover(&self.image_cache);
-                cache_guard.get(path).cloned()
-            } {
-                match cached {
-                    CacheEntry::Decoded(image) => {
-                        use image::imageops::thumbnail;
-
-                        // 计算缩略图尺寸（保持宽高比）
-                        let max_thumb_size = 120;
-                        let scale =
-                            (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
-                        let thumb_w = (image.width as f32 * scale) as u32;
-                        let thumb_h = (image.height as f32 * scale) as u32;
-
-                        // 从原始像素数据创建 RgbaImage
-                        if let Some(img) = image::RgbaImage::from_raw(
-                            image.width,
-                            image.height,
-                            image.data.clone(),
-                        ) {
-                            // 生成缩略图（非常快，因为只是缩放操作）
-                            let thumb_img = thumbnail(&img, thumb_w, thumb_h);
-
-                            // 创建纹理
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                [thumb_w as usize, thumb_h as usize],
-                                thumb_img.as_raw(),
-                            );
-                            let texture = ui.ctx().load_texture(
-                                "nav_thumbnail",
-                                color_image,
-                                egui::TextureOptions::LINEAR,
-                            );
-
-                            // 缓存纹理
-                            self.nav_thumbnail = Some((path.clone(), texture.clone()));
-                            return Some(texture);
-                        }
-                    }
-                    CacheEntry::TiledMeta(tiled) => {
-                        // 对于分块图片，直接使用缩略图
-                        let thumb_image = &tiled.thumbnail;
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                            [thumb_image.width as usize, thumb_image.height as usize],
-                            &thumb_image.data,
-                        );
-                        let texture = ui.ctx().load_texture(
-                            "nav_thumbnail",
-                            color_image,
-                            egui::TextureOptions::LINEAR,
-                        );
-
-                        // 缓存纹理
-                        self.nav_thumbnail = Some((path.clone(), texture.clone()));
-                        return Some(texture);
-                    }
-                }
-            }
-        }
-        None
+    pub(crate) fn get_or_create_nav_thumbnail(
+        &mut self,
+        ui: &mut egui::Ui,
+    ) -> Option<egui::TextureHandle> {
+        operation::cache_manager::get_or_create_nav_thumbnail(self, ui)
     }
 
     pub fn load_image(&mut self, path: &PathBuf, ctx: &egui::Context) -> Result<(), String> {
-        // 1. 优先检查缓存
-        if let Some(cached) = {
-            let mut cache_guard = lock_or_recover(&self.image_cache);
-            cache_guard.get(path).cloned()
-        } {
-            // 缓存命中,立即应用
-            self.apply_cached_entry(cached, path, ctx);
-            return Ok(());
-        }
-
-        // 2. 缓存未命中,异步加载
-        self.load_image_async(path, ctx);
-        Ok(())
+        operation::cache_manager::load_image(self, path, ctx)
     }
 
     /// 应用缓存条目
-    pub(crate) fn apply_cached_entry(&mut self, entry: CacheEntry, path: &PathBuf, ctx: &egui::Context) {
-        debug_log!(
-            "[{:.3}s] [APP] 缓存命中: {:?}",
-            elapsed_ms() as f64 / 1000.0,
-            path.file_name()
-        );
-
-        self.current_path = Some(path.clone());
-        self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-
-        match entry {
-            CacheEntry::Decoded(image) => {
-                // 从解码数据创建纹理（使用唯一ID避免冲突）
-                let image_size = egui::vec2(image.width as f32, image.height as f32);
-                let texture_id = format!("image_{:?}", path.file_name());
-                let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                    [image.width as usize, image.height as usize],
-                    &image.data,
-                );
-                let texture =
-                    ctx.load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
-
-                debug_log!(
-                    "[{:.3}s] [APP] 缓存纹理创建完成: {}",
-                    elapsed_ms() as f64 / 1000.0,
-                    texture_id
-                );
-
-                // 显示图片
-                self.texture = Some(texture);
-                self.image_size = image_size;
-                self.tiled_image = None; // 清除分块图片
-                self.tile_textures.clear();
-
-                self.zoom_mode = ZoomMode::Fit;
-                self.zoom = 1.0;
-                self.rotation = 0.0;
-                self.image_offset = egui::Vec2::ZERO;
-
-                // 将解码后的数据重新放回缓存（因为 entry 被移动了）
-                {
-                    let mut cache_guard = lock_or_recover(&self.image_cache);
-                    cache_guard.put(path.clone(), CacheEntry::Decoded(image));
-                }
-            }
-            CacheEntry::TiledMeta(tiled) => {
-                // 处理分块图片
-                let image_size = egui::vec2(tiled.width as f32, tiled.height as f32);
-
-                // 创建缩略图文理作为背景
-                let thumb_texture_id = format!("thumb_{:?}", path.file_name());
-                let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
-                    [
-                        tiled.thumbnail.width as usize,
-                        tiled.thumbnail.height as usize,
-                    ],
-                    &tiled.thumbnail.data,
-                );
-                let thumb_texture = ctx.load_texture(
-                    &thumb_texture_id,
-                    thumb_color_image,
-                    egui::TextureOptions::LINEAR,
-                );
-
-                // 设置缩略图为当前纹理
-                self.texture = Some(thumb_texture);
-                self.image_size = image_size;
-                self.tiled_image = Some(tiled.clone());
-                self.tile_textures.clear();
-
-                self.zoom_mode = ZoomMode::Fit;
-                self.zoom = 1.0;
-                self.rotation = 0.0;
-                self.image_offset = egui::Vec2::ZERO;
-
-                // 将分块图片数据重新放回缓存
-                {
-                    let mut cache_guard = lock_or_recover(&self.image_cache);
-                    cache_guard.put(path.clone(), CacheEntry::TiledMeta(tiled));
-                }
-
-                // 请求加载可见区域的块
-                self.request_visible_tiles(ctx);
-            }
-        }
-
-        // 更新目录列表
-        self.update_directory_list(path);
-
-        // 激进的内存清理：如果缓存超过5张，移除最旧的
-        if let Ok(mut cache) = self.image_cache.lock() {
-            while cache.len() > 5 {
-                cache.pop_lru();
-            }
-        }
+    pub(crate) fn apply_cached_entry(
+        &mut self,
+        entry: CacheEntry,
+        path: &PathBuf,
+        ctx: &egui::Context,
+    ) {
+        operation::cache_manager::apply_cached_entry(self, entry, path, ctx);
     }
 
-    /// 异步加载图片(使用专用后台线程)
-    fn load_image_async(&mut self, path: &PathBuf, _ctx: &egui::Context) {
-        debug_log!(
-            "[{:.3}s] [APP] 请求加载: {:?}",
-            elapsed_ms() as f64 / 1000.0,
-            path.file_name()
-        );
-
-        // 1. 立即设置路径
-        self.current_path = Some(path.clone());
-        self.file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-
-        // 2. 清除旧纹理，避免显示上一张图片
-        let old_texture = self.texture.take();
-        drop(old_texture);
-
-        // 3. 先获取图片尺寸以决定是否使用分块加载
-        if let Some(ref tx) = self.cmd_tx {
-            // 首先尝试创建分块图片元数据（会读取尺寸并生成缩略图）
-            debug_log!(
-                "[{:.3}s] [APP] 发送分块图片创建请求",
-                elapsed_ms() as f64 / 1000.0
-            );
-            let _ = tx.send(LoadCommand::CreateTiledImage {
-                path: path.clone(),
-                priority: LoadPriority::Critical,
-            });
-        }
+    /// 异步加载图片（使用专用后台线程）
+    fn load_image_async(&mut self, path: &PathBuf, ctx: &egui::Context) {
+        operation::cache_manager::load_image_async(self, path, ctx);
     }
 
     pub fn prev_image(&mut self, ctx: &egui::Context) {
-        // 只有一张图片或没有图片时，不执行切换
-        if self.current_images.len() <= 1 {
-            return;
-        }
-
-        debug_log!(
-            "[{:.3}s] [APP] 上一张: current_images={}, current_index={}",
-            elapsed_ms() as f64 / 1000.0,
-            self.current_images.len(),
-            self.current_index
-        );
-
-        // 计算新索引
-        let new_index = if self.current_index > 0 {
-            self.current_index - 1
-        } else {
-            self.current_images.len() - 1
-        };
-
-        // 如果索引没变化，不执行切换
-        if new_index == self.current_index {
-            return;
-        }
-
-        self.current_index = new_index;
-        let path = self.current_images[self.current_index].clone();
-        debug_log!(
-            "[{:.3}s] [APP] 切换到: {:?}",
-            elapsed_ms() as f64 / 1000.0,
-            path.file_name()
-        );
-        self.load_image(&path, ctx).ok();
-
-        // 请求生成周围的缩略图
-        let cmd_tx = self.cmd_tx.clone();
-        self.thumbnail_mgr.request_surrounding_thumbnails(
-            &self.current_images,
-            self.current_index,
-            &cmd_tx,
-            5, // 前后各5张
-        );
+        operation::navigation::prev_image(self, ctx);
     }
 
     pub fn next_image(&mut self, ctx: &egui::Context) {
-        // 只有一张图片或没有图片时，不执行切换
-        if self.current_images.len() <= 1 {
-            return;
-        }
-
-        debug_log!(
-            "[{:.3}s] [APP] 下一张: current_images={}, current_index={}",
-            elapsed_ms() as f64 / 1000.0,
-            self.current_images.len(),
-            self.current_index
-        );
-
-        // 计算新索引
-        let new_index = if self.current_index < self.current_images.len() - 1 {
-            self.current_index + 1
-        } else {
-            0
-        };
-
-        // 如果索引没变化，不执行切换
-        if new_index == self.current_index {
-            return;
-        }
-
-        self.current_index = new_index;
-        let path = self.current_images[self.current_index].clone();
-        debug_log!(
-            "[{:.3}s] [APP] 切换到: {:?}",
-            elapsed_ms() as f64 / 1000.0,
-            path.file_name()
-        );
-        self.load_image(&path, ctx).ok();
-
-        // 请求生成周围的缩略图
-        let cmd_tx = self.cmd_tx.clone();
-        self.thumbnail_mgr.request_surrounding_thumbnails(
-            &self.current_images,
-            self.current_index,
-            &cmd_tx,
-            5, // 前后各5张
-        );
+        operation::navigation::next_image(self, ctx);
     }
 
     pub fn zoom_in(&mut self, current_scale: f32) {
-        // 如果当前不是 Custom 模式，先切换到 Custom 并使用当前缩放比例
-        if self.zoom_mode != ZoomMode::Custom {
-            self.zoom = current_scale;
-            self.zoom_mode = ZoomMode::Custom;
-        }
-        self.zoom *= 1.2;
+        operation::image_ops::zoom_in(self, current_scale);
     }
 
     pub fn zoom_out(&mut self, current_scale: f32) {
-        // 如果当前不是 Custom 模式，先切换到 Custom 并使用当前缩放比例
-        if self.zoom_mode != ZoomMode::Custom {
-            self.zoom = current_scale;
-            self.zoom_mode = ZoomMode::Custom;
-        }
-        self.zoom /= 1.2;
-        if self.zoom < 0.01 {
-            self.zoom = 0.01;
-        }
+        operation::image_ops::zoom_out(self, current_scale);
     }
 
     pub fn rotate_left(&mut self) {
-        self.rotation -= 90.0;
-        if self.rotation < 0.0 {
-            self.rotation += 360.0;
-        }
+        operation::image_ops::rotate_left(self);
     }
 
     pub fn rotate_right(&mut self) {
-        self.rotation += 90.0;
-        if self.rotation >= 360.0 {
-            self.rotation -= 360.0;
-        }
+        operation::image_ops::rotate_right(self);
     }
 
-    /// 更新目录列表(异步扫描，仅首次加载时执行)
     pub(crate) fn update_directory_list(&mut self, path: &PathBuf) {
-        // 检查是否需要重新扫描目录
-        let need_rescan = if let Some(dir_cache) = &self.dir_cache {
-            // 如果缓存存在，检查当前图片是否在缓存的目录中
-            if let Some(pos) = dir_cache.images.iter().position(|p| p == path) {
-                debug_log!(
-                    "[{:.3}s] [APP] 使用目录缓存: {} 张图片",
-                    elapsed_ms() as f64 / 1000.0,
-                    dir_cache.images.len()
-                );
-
-                self.current_images = dir_cache.images.clone();
-                self.current_index = pos;
-                debug_log!(
-                    "[{:.3}s] [APP] 从缓存恢复位置: {}",
-                    elapsed_ms() as f64 / 1000.0,
-                    pos
-                );
-                return; // 缓存命中，直接返回
-            } else {
-                // 当前图片不在缓存的目录中，说明切换到了新目录
-                debug_log!(
-                    "[{:.3}s] [APP] 检测到目录变化，清除旧缓存",
-                    elapsed_ms() as f64 / 1000.0
-                );
-                true // 需要重新扫描
-            }
-        } else {
-            true // 首次打开，需要扫描
-        };
-
-        // 需要扫描目录
-        if need_rescan && let Some(parent) = path.parent() {
-            debug_log!(
-                "[{:.3}s] [APP] 触发目录扫描: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                parent
-            );
-
-            // 清除旧缓存
-            self.dir_cache = None;
-
-            // 发送扫描命令到后台线程
-            if let Some(ref tx) = self.cmd_tx {
-                let _ = tx.send(LoadCommand::ScanDirectory {
-                    dir_path: parent.to_path_buf(),
-                });
-            }
-            // 注意：此时不设置 current_images，等待扫描结果返回后再更新
-        }
+        operation::navigation::update_directory_list(self, path);
     }
 
-    /// 预加载相邻图片(智能方向性预加载)
-    pub(crate) fn preload_adjacent_images(&mut self, _ctx: &egui::Context) {
-        if self.current_images.is_empty() || self.current_index >= self.current_images.len() {
-            return;
-        }
-
-        // 检查当前图片是否已在缓存中（已加载完成）
-        let current_loaded = {
-            if let Some(ref path) = self.current_path {
-                let cache_guard = lock_or_recover(&self.image_cache);
-                cache_guard.contains(path)
-            } else {
-                false
-            }
-        };
-
-        // 只有当前图片加载完成后才预加载
-        if !current_loaded {
-            debug_log!(
-                "[{:.3}s] [APP] 跳过预加载：当前图片尚未加载完成",
-                elapsed_ms() as f64 / 1000.0
-            );
-            return;
-        }
-
-        let mut to_prefetch = Vec::new();
-
-        // 策略：优先预加载下一张，其次是上两张，避免加载已看过的
-        let next_idx = self.current_index + 1;
-        let next2_idx = self.current_index + 2;
-        let next3_idx = self.current_index + 3;
-
-        // 检查缓存，只预加载未缓存的图片
-        let cache_guard = lock_or_recover(&self.image_cache);
-
-        // 1. 预加载下一张（最高优先级）
-        if next_idx < self.current_images.len() {
-            let path = &self.current_images[next_idx];
-            if !cache_guard.contains(path) {
-                to_prefetch.push(path.clone());
-            } else {
-                debug_log!(
-                    "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
-                    elapsed_ms() as f64 / 1000.0,
-                    path.file_name()
-                );
-            }
-        }
-
-        // 2. 预加载下两张（次高优先级）
-        if next2_idx < self.current_images.len() {
-            let path = &self.current_images[next2_idx];
-            if !cache_guard.contains(path) {
-                to_prefetch.push(path.clone());
-            } else {
-                debug_log!(
-                    "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
-                    elapsed_ms() as f64 / 1000.0,
-                    path.file_name()
-                );
-            }
-        }
-
-        // 3. 预加载下三张（可选）
-        if next3_idx < self.current_images.len() {
-            let path = &self.current_images[next3_idx];
-            if !cache_guard.contains(path) {
-                to_prefetch.push(path.clone());
-            } else {
-                debug_log!(
-                    "[{:.3}s] [APP] 跳过预加载（已缓存）: {:?}",
-                    elapsed_ms() as f64 / 1000.0,
-                    path.file_name()
-                );
-            }
-        }
-
-        drop(cache_guard); // 释放锁
-
-        // 发送预加载命令到后台线程
-        if !to_prefetch.is_empty() {
-            debug_log!(
-                "[{:.3}s] [APP] 预加载 {} 张图片",
-                elapsed_ms() as f64 / 1000.0,
-                to_prefetch.len()
-            );
-
-            if let Some(ref tx) = self.cmd_tx {
-                let _ = tx.send(LoadCommand::Prefetch {
-                    paths: to_prefetch,
-                    priority: LoadPriority::Low,
-                });
-            }
-        } else {
-            debug_log!(
-                "[{:.3}s] [APP] 无需预加载：所有相邻图片已缓存",
-                elapsed_ms() as f64 / 1000.0
-            );
-        }
+    /// 预加载相邻图片（智能方向性预加载）
+    pub(crate) fn preload_adjacent_images(&mut self) {
+        operation::navigation::preload_adjacent_images(self);
     }
 
     /// 请求加载可见区域的块
     fn request_visible_tiles(&mut self, ctx: &egui::Context) {
-        if let Some(ref tiled) = self.tiled_image
-            && let Some(ref path) = self.current_path
-        {
-            // 计算当前可见区域对应的块
-            let available = ctx.content_rect().size();
-
-            // 根据当前缩放和偏移计算可见区域
-            let mut size = egui::vec2(tiled.width as f32, tiled.height as f32);
-            match self.zoom_mode {
-                ZoomMode::Fit => {
-                    let scale_x = available.x / size.x;
-                    let scale_y = available.y / size.y;
-                    let scale = scale_x.min(scale_y);
-                    size *= scale;
-                }
-                ZoomMode::Fill => {
-                    let scale = (available.x / size.x).max(available.y / size.y);
-                    size *= scale;
-                }
-                ZoomMode::Original => {
-                    // 原始尺寸
-                }
-                ZoomMode::Custom => {
-                    size *= self.zoom;
-                }
-            }
-
-            // 计算可见区域在原始图片中的位置
-            // image_rect 的中心是 available/2 + image_offset
-            // 所以 image_rect.min = (available - size) / 2 + image_offset
-            let rect_min_x = (available.x - size.x) / 2.0 + self.image_offset.x;
-            let rect_min_y = (available.y - size.y) / 2.0 + self.image_offset.y;
-
-            // 可见区域占整个图片的比例
-            let view_left_ratio = (-rect_min_x / size.x).clamp(0.0, 1.0);
-            let view_top_ratio = (-rect_min_y / size.y).clamp(0.0, 1.0);
-            let view_right_ratio = ((-rect_min_x + available.x) / size.x).clamp(0.0, 1.0);
-            let view_bottom_ratio = ((-rect_min_y + available.y) / size.y).clamp(0.0, 1.0);
-
-            // 转换到原始图片坐标
-            let view_left = view_left_ratio * tiled.width as f32;
-            let view_top = view_top_ratio * tiled.height as f32;
-            let view_right = view_right_ratio * tiled.width as f32;
-            let view_bottom = view_bottom_ratio * tiled.height as f32;
-
-            // 计算需要加载的块范围
-            let start_col = (view_left / tiled.tile_size as f32) as u32;
-            let end_col = ((view_right / tiled.tile_size as f32).ceil() as u32).min(tiled.cols);
-            let start_row = (view_top / tiled.tile_size as f32) as u32;
-            let end_row = ((view_bottom / tiled.tile_size as f32).ceil() as u32).min(tiled.rows);
-
-            // 请求加载这些块
-            if let Some(ref tx) = self.cmd_tx {
-                for row in start_row..end_row {
-                    for col in start_col..end_col {
-                        // 检查是否已经加载
-                        if !self.tile_textures.contains_key(&(col, row)) {
-                            let _ = tx.send(LoadCommand::LoadTile {
-                                path: path.clone(),
-                                col,
-                                row,
-                                priority: LoadPriority::High,
-                            });
-                        }
-                    }
-                }
-            }
-        }
+        operation::tile_renderer::request_visible_tiles(self, ctx);
     }
 
     /// 渲染已加载的块
@@ -854,115 +328,39 @@ impl FastViewApp {
         image_rect: egui::Rect,
         display_size: egui::Vec2,
         original_size: egui::Vec2,
-        _available: egui::Vec2,
+        available: egui::Vec2,
         rotation: f32,
     ) {
-        if let Some(ref tiled) = self.tiled_image {
-            // 只在第一次渲染或有新块时输出日志
-            static mut LAST_TILE_COUNT: usize = 0;
-            unsafe {
-                if self.tile_textures.len() != LAST_TILE_COUNT {
-                    debug_log!(
-                        "[{:.3}s] [RENDER] 渲染 {} 个块, image_rect={:?}, display_size={:?}",
-                        elapsed_ms() as f64 / 1000.0,
-                        self.tile_textures.len(),
-                        image_rect,
-                        display_size
-                    );
-                    LAST_TILE_COUNT = self.tile_textures.len();
-                }
-            }
-
-            // 遍历所有已加载的块纹理并渲染
-            for ((col, row), texture) in &self.tile_textures {
-                // 找到对应的块信息
-                if let Some(tile_info) = tiled.tiles.iter().find(|t| t.col == *col && t.row == *row)
-                {
-                    // 计算缩放比例：显示尺寸 / 原始图片尺寸
-                    let scale_x = display_size.x / original_size.x;
-                    let scale_y = display_size.y / original_size.y;
-
-                    // 块在原始图片中的位置，转换到显示坐标
-                    let tile_display_x = tile_info.x as f32 * scale_x;
-                    let tile_display_y = tile_info.y as f32 * scale_y;
-                    let tile_display_w = tile_info.width as f32 * scale_x;
-                    let tile_display_h = tile_info.height as f32 * scale_y;
-
-                    // image_rect 已经是考虑了 offset 后的矩形
-                    // 所以块的绝对位置应该是 image_rect 的左上角 + 块在图片内的相对位置
-                    let tile_rect = egui::Rect::from_min_size(
-                        image_rect.min + egui::vec2(tile_display_x, tile_display_y),
-                        egui::vec2(tile_display_w, tile_display_h),
-                    );
-
-                    // 渲染块纹理，应用相同的旋转
-                    let mut tile_image = egui::Image::new((
-                        texture.id(),
-                        egui::vec2(tile_display_w, tile_display_h),
-                    ));
-                    if rotation != 0.0 {
-                        let angle_rad = rotation * std::f32::consts::TAU / 360.0;
-                        tile_image = tile_image.rotate(angle_rad, egui::Vec2::splat(0.5));
-                    }
-                    ui.put(tile_rect, tile_image);
-                }
-            }
-        }
+        operation::tile_renderer::render_tiles(
+            self,
+            ui,
+            image_rect,
+            display_size,
+            original_size,
+            available,
+            rotation,
+        );
     }
 
     pub fn toggle_fullscreen(&mut self, ctx: &egui::Context) {
-        self.is_fullscreen = !self.is_fullscreen;
-        if self.is_fullscreen {
-            self.is_ui_visible = false;
-            // 立即隐藏光标
-            ctx.send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
-        } else {
-            self.is_ui_visible = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
-        }
-        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.is_fullscreen));
+        operation::image_ops::toggle_fullscreen(self, ctx);
     }
 
     pub fn toggle_borderless(&mut self, ctx: &egui::Context) {
-        self.is_borderless = !self.is_borderless;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.is_borderless));
+        operation::image_ops::toggle_borderless(self, ctx);
     }
 
     pub fn toggle_status_bar(&mut self) {
-        self.settings.show_status_bar = !self.settings.show_status_bar;
-        self.save_settings();
+        operation::image_ops::toggle_status_bar(self);
     }
 
-    /// 内存检查和淘汰(如果超出限制则移除最旧条目)
+    /// 内存检查和淘汰（如果超出限制则移除最旧条目）
     pub(crate) fn evict_if_needed(
         &self,
         cache: &mut lru::LruCache<PathBuf, CacheEntry>,
         new_entry_bytes: usize,
     ) {
-        let max_memory = 150 * 1024 * 1024; // 150MB (提高限制以容纳更多预加载图片)
-
-        loop {
-            let current_memory: usize = cache
-                .iter()
-                .map(|(_, entry)| entry.estimated_memory_bytes())
-                .sum();
-
-            // 如果超出限制，淘汰最旧的条目
-            if current_memory + new_entry_bytes > max_memory {
-                if let Some((oldest_path, oldest_entry)) = cache.pop_lru() {
-                    let freed_bytes = oldest_entry.estimated_memory_bytes();
-                    debug_log!(
-                        "[EVICT] Removed {:?} (freed {} MB)",
-                        oldest_path.file_name(),
-                        freed_bytes as f64 / 1024.0 / 1024.0
-                    );
-                } else {
-                    break; // 缓存已空
-                }
-            } else {
-                break; // 内存充足
-            }
-        }
+        operation::cache_manager::evict_if_needed(self, cache, new_entry_bytes);
     }
 }
 
@@ -997,7 +395,7 @@ impl eframe::App for FastViewApp {
         render_menu_bar(self, ui);
 
         // 处理异步加载结果
-        let (needs_prefetch, path_for_dir_update) = handlers::events::handle_load_results(self, ui);
+        let (needs_prefetch, path_for_dir_update) = handler::events::handle_load_results(self, ui);
 
         // 处理预加载和目录更新
         lifecycle::handle_post_load_operations(self, ui, needs_prefetch, path_for_dir_update);

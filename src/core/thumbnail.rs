@@ -14,6 +14,12 @@ pub struct ThumbnailBar {
     pub last_interaction: Instant,
 }
 
+impl Default for ThumbnailBar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThumbnailBar {
     pub fn new() -> Self {
         Self {

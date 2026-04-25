@@ -1,9 +1,9 @@
 use eframe::egui;
 
-use crate::app::{elapsed_ms, WindowType};
-use crate::debug_log;
+use crate::app::{WindowType, elapsed_ms};
+
+use crate::app::FastViewApp;
 use crate::core::ZoomMode;
-use crate::FastViewApp;
 
 /// 处理键盘事件
 pub fn handle_keyboard_events(app: &mut FastViewApp, ui: &mut egui::Ui) {
@@ -79,7 +79,7 @@ pub fn handle_keyboard_events(app: &mut FastViewApp, ui: &mut egui::Ui) {
                     _ => {}
                 }
             }
-            
+
             // 松开空格键时退出拖动模式
             if !pressed && key == egui::Key::Space {
                 app.is_drag_mode = false;

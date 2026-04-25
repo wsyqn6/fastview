@@ -12,7 +12,6 @@ pub fn setup_minimal_fonts(cc: &eframe::CreationContext<'_>) {
 /// 异步加载中文字体并在完成后应用
 pub fn start_async_font_loader(ctx: egui::Context) {
     std::thread::spawn(move || {
-        use crate::debug_log;
         use std::time::Instant;
 
         let t0 = Instant::now();

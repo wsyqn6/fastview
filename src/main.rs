@@ -1,30 +1,5 @@
-mod app;
-mod components;
-mod core;
-mod handlers;
-mod ui;
-mod utils;
-
-use app::FastViewApp;
 use eframe::egui;
-
-/// 仅在 debug 模式下输出日志
-#[macro_export]
-macro_rules! debug_log {
-    ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        eprintln!($($arg)*);
-    };
-}
-
-/// 性能监控宏 (仅 debug 模式)
-#[macro_export]
-macro_rules! perf_log {
-    ($label:expr, $start:expr) => {
-        #[cfg(debug_assertions)]
-        eprintln!("[PERF] {}: {}ms", $label, $start.elapsed().as_millis());
-    };
-}
+use fastview::app::FastViewApp;
 
 /// Windows 平台：在 release 模式下隐藏控制台窗口
 #[cfg(all(windows, not(debug_assertions)))]
@@ -43,6 +18,7 @@ fn main() -> eframe::Result<()> {
     // Windows release 模式：隐藏控制台窗口
     #[cfg(all(windows, not(debug_assertions)))]
     hide_console_window();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])

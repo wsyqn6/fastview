@@ -1,7 +1,7 @@
 use eframe::egui;
 
+use crate::app::FastViewApp;
 use crate::core::{TextKey, ZoomMode};
-use crate::FastViewApp;
 
 /// 渲染菜单栏
 pub fn render_menu_bar(app: &mut FastViewApp, ui: &mut egui::Ui) {
@@ -123,7 +123,8 @@ fn render_help_menu(app: &mut FastViewApp, ui: &mut egui::Ui) {
             if app.show_shortcuts {
                 app.window_stack.push(crate::app::WindowType::Shortcuts);
             } else {
-                app.window_stack.retain(|w| w != &crate::app::WindowType::Shortcuts);
+                app.window_stack
+                    .retain(|w| w != &crate::app::WindowType::Shortcuts);
             }
             ui.close();
         }

@@ -1,15 +1,13 @@
 use eframe::egui;
 
+use crate::app::FastViewApp;
 use crate::core::ZoomMode;
-use crate::FastViewApp;
 
 /// 渲染中央图片显示区域
 pub fn render_image_area(app: &mut FastViewApp, ui: &mut egui::Ui) {
     // CentralPanel：深色背景突出图片
     egui::CentralPanel::default()
-        .frame(
-            egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 255)),
-        )
+        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(30, 30, 30, 255)))
         .show_inside(ui, |ui| {
             // 处理拖拽文件
             handle_dragged_files(app, ui);
@@ -18,7 +16,7 @@ pub fn render_image_area(app: &mut FastViewApp, ui: &mut egui::Ui) {
 
             // 先检查是否有纹理，避免借用冲突
             let has_texture = app.texture.is_some();
-            
+
             if has_texture {
                 render_main_image(app, ui, available);
             } else if app.tiled_image.is_some() {
@@ -56,14 +54,12 @@ fn handle_dragged_files(app: &mut FastViewApp, ui: &mut egui::Ui) {
 }
 
 /// 渲染主图片
-fn render_main_image(
-    app: &mut FastViewApp,
-    ui: &mut egui::Ui,
-    available: egui::Vec2,
-) {
+fn render_main_image(app: &mut FastViewApp, ui: &mut egui::Ui, available: egui::Vec2) {
     // 在函数内部获取 texture，避免借用冲突
-    let Some(ref texture) = app.texture else { return };
-    
+    let Some(ref texture) = app.texture else {
+        return;
+    };
+
     let mut size = app.image_size;
 
     // 计算缩放
@@ -107,7 +103,14 @@ fn render_main_image(
     // 如果是分块图片，渲染已加载的块
     if let Some(ref tiled) = app.tiled_image {
         let original_size = egui::vec2(tiled.width as f32, tiled.height as f32);
-        app.render_tiles(ui, absolute_rect, size, original_size, available, app.rotation);
+        app.render_tiles(
+            ui,
+            absolute_rect,
+            size,
+            original_size,
+            available,
+            app.rotation,
+        );
     }
 
     // 检查是否需要显示导航缩略图
@@ -119,10 +122,8 @@ fn render_main_image(
     }
 
     // 显示缩略图导航
-    if need_navigation {
-        if let Some(thumb_tex) = app.get_or_create_nav_thumbnail(ui) {
-            render_thumbnail_navigator(app, ui, thumb_tex, size, available);
-        }
+    if need_navigation && let Some(thumb_tex) = app.get_or_create_nav_thumbnail(ui) {
+        render_thumbnail_navigator(app, ui, thumb_tex, size, available);
     }
 }
 
@@ -183,7 +184,14 @@ fn render_thumbnail_navigator(
             let response = ui.add(thumb_image);
 
             // 绘制视口指示器（红框）
-            draw_viewport_indicator(app, ui, response.rect.center(), thumb_size, display_size, available);
+            draw_viewport_indicator(
+                app,
+                ui,
+                response.rect.center(),
+                thumb_size,
+                display_size,
+                available,
+            );
         });
 }
 
@@ -209,10 +217,8 @@ fn draw_viewport_indicator(
     let offset_ratio_y = (-app.image_offset.y / display_size.y + 0.5).clamp(0.0, 1.0);
 
     // 红框的左上角位置（相对于缩略图中心）
-    let unrotated_view_x =
-        (thumb_size.x - view_rect_w) * offset_ratio_x - thumb_size.x / 2.0;
-    let unrotated_view_y =
-        (thumb_size.y - view_rect_h) * offset_ratio_y - thumb_size.y / 2.0;
+    let unrotated_view_x = (thumb_size.x - view_rect_w) * offset_ratio_x - thumb_size.x / 2.0;
+    let unrotated_view_y = (thumb_size.y - view_rect_h) * offset_ratio_y - thumb_size.y / 2.0;
 
     // 如果缩略图旋转了，需要将红框的四个角点旋转相同的角度
     if app.rotation != 0.0 {
@@ -257,7 +263,10 @@ fn draw_rotated_viewport_rect(
     let corners = [
         egui::vec2(unrotated_view_x, unrotated_view_y),
         egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y),
-        egui::vec2(unrotated_view_x + view_rect_w, unrotated_view_y + view_rect_h),
+        egui::vec2(
+            unrotated_view_x + view_rect_w,
+            unrotated_view_y + view_rect_h,
+        ),
         egui::vec2(unrotated_view_x, unrotated_view_y + view_rect_h),
     ];
 
@@ -291,14 +300,18 @@ fn render_tiled_placeholder(_app: &FastViewApp, _ui: &mut egui::Ui, _available: 
 
 /// 渲染空状态
 fn render_empty_state(app: &FastViewApp, ui: &mut egui::Ui, available: egui::Vec2) {
-    let text = if app.load_error.is_some() {
-        app.load_error.as_ref().unwrap()
+    let text = if let Some(error) = &app.load_error {
+        error.as_str()
     } else {
         "拖放图片或按 Ctrl+O 打开"
     };
 
     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
         ui.add_space(available.y / 3.0);
-        ui.label(egui::RichText::new(text).size(14.0).color(egui::Color32::GRAY));
+        ui.label(
+            egui::RichText::new(text)
+                .size(14.0)
+                .color(egui::Color32::GRAY),
+        );
     });
 }
