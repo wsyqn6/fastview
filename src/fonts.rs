@@ -14,17 +14,20 @@ pub fn start_async_font_loader(ctx: egui::Context) {
     std::thread::spawn(move || {
         use crate::debug_log;
         use std::time::Instant;
-        
+
         let t0 = Instant::now();
         debug_log!("[FONT] Starting async font loading...");
-        
+
         // 尝试加载中文字体
         let font_data = load_chinese_font();
-        
+
         match font_data {
             Ok(data) => {
-                debug_log!("[FONT] Font loaded in {}ms, applying...", t0.elapsed().as_millis());
-                
+                debug_log!(
+                    "[FONT] Font loaded in {}ms, applying...",
+                    t0.elapsed().as_millis()
+                );
+
                 // 构建完整字体配置
                 let mut fonts = egui::FontDefinitions::default();
                 fonts.font_data.insert(
@@ -43,15 +46,21 @@ pub fn start_async_font_loader(ctx: egui::Context) {
                     .entry(egui::FontFamily::Monospace)
                     .or_default()
                     .push("chinese".to_owned());
-                
+
                 // 在主线程上下文中应用字体
                 ctx.set_fonts(fonts);
                 ctx.request_repaint();
-                
-                debug_log!("[FONT] Font applied successfully in {}ms", t0.elapsed().as_millis());
+
+                debug_log!(
+                    "[FONT] Font applied successfully in {}ms",
+                    t0.elapsed().as_millis()
+                );
             }
             Err(e) => {
-                debug_log!("[WARN] Failed to load Chinese font: {}. Using ASCII only.", e);
+                debug_log!(
+                    "[WARN] Failed to load Chinese font: {}. Using ASCII only.",
+                    e
+                );
             }
         }
     });
@@ -61,7 +70,7 @@ pub fn start_async_font_loader(ctx: egui::Context) {
 fn load_chinese_font() -> Result<Vec<u8>, std::io::Error> {
     #[cfg(windows)]
     {
-        return load_windows_font("msyh");
+        load_windows_font("msyh")
     }
 
     #[cfg(not(windows))]

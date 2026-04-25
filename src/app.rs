@@ -7,7 +7,7 @@ use crate::debug_log;
 use crate::fonts::{setup_minimal_fonts, start_async_font_loader};
 use crate::i18n::TextKey;
 use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
-use crate::types::{CacheEntry, ImageCache, Language, Settings, ZoomMode, TiledImage};
+use crate::types::{CacheEntry, ImageCache, Language, Settings, TiledImage, ZoomMode};
 use crate::utils::lock_or_recover;
 use crate::{log_error, log_warn, perf_log};
 
@@ -24,16 +24,14 @@ fn load_settings_from_disk() -> Settings {
         let config_path = config_dir.join("fastview").join("settings.json");
         if config_path.exists() {
             match std::fs::read_to_string(&config_path) {
-                Ok(content) => {
-                    match serde_json::from_str(&content) {
-                        Ok(settings) => {
-                            return settings;
-                        }
-                        Err(e) => {
-                            log_warn!("Failed to parse settings file, using defaults: {}", e);
-                        }
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(settings) => {
+                        return settings;
                     }
-                }
+                    Err(e) => {
+                        log_warn!("Failed to parse settings file, using defaults: {}", e);
+                    }
+                },
                 Err(e) => {
                     log_warn!("Failed to read settings file: {}", e);
                 }
@@ -75,8 +73,8 @@ pub struct FastViewApp {
     pub image_cache: ImageCache,
     pub settings: Settings,
     pub show_settings: bool,
-    pub file_size: u64,   // 文件大小（字节）
-    pub show_about: bool, // 控制“关于”对话框显示
+    pub file_size: u64,             // 文件大小（字节）
+    pub show_about: bool,           // 控制“关于”对话框显示
     pub load_error: Option<String>, // 加载错误信息
 
     // 窗口打开顺序栈，用于ESC键后开先关逻辑
@@ -93,16 +91,19 @@ pub struct FastViewApp {
     // UI 自动隐藏逻辑
     last_mouse_move: std::time::Instant,
     is_ui_visible: bool, // 控制全屏下菜单栏和状态栏的可见性
-    
+
     // 分块图片相关
     tiled_image: Option<Arc<TiledImage>>,
     tile_textures: std::collections::HashMap<(u32, u32), egui::TextureHandle>, // 已加载的块纹理
+
+    // 缩略图管理器
+    thumbnail_mgr: crate::thumbnail_manager::ThumbnailManager,
 }
 
 impl Default for FastViewApp {
     fn default() -> Self {
-        use lru::LruCache;
         use crate::utils::to_non_zero_usize;
+        use lru::LruCache;
 
         Self {
             texture: None,
@@ -121,7 +122,9 @@ impl Default for FastViewApp {
             is_fullscreen: false,
             is_borderless: false,
             current_scale: 1.0,
-            image_cache: Arc::new(std::sync::Mutex::new(LruCache::new(to_non_zero_usize(5, 10)))),
+            image_cache: Arc::new(std::sync::Mutex::new(LruCache::new(to_non_zero_usize(
+                5, 10,
+            )))),
             settings: Settings::default(),
             show_settings: false,
             file_size: 0,
@@ -136,6 +139,8 @@ impl Default for FastViewApp {
             is_ui_visible: true,
             tiled_image: None,
             tile_textures: std::collections::HashMap::new(),
+
+            thumbnail_mgr: crate::thumbnail_manager::ThumbnailManager::new(),
         }
     }
 }
@@ -143,38 +148,36 @@ impl Default for FastViewApp {
 impl FastViewApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let t0 = Instant::now();
-        
+
         // Phase 1: 立即设置最小字体 (无 I/O, <5ms)
         setup_minimal_fonts(cc);
         perf_log!("Minimal fonts setup", t0);
-        
+
         // Phase 2: 并行启动: 字体加载 + 配置读取
         let font_ctx = cc.egui_ctx.clone();
         let font_handle = std::thread::spawn(move || {
             start_async_font_loader(font_ctx);
         });
-        
-        let settings_handle = std::thread::spawn(|| {
-            load_settings_from_disk()
-        });
-        
+
+        let settings_handle = std::thread::spawn(|| load_settings_from_disk());
+
         perf_log!("Parallel tasks started", t0);
-        
+
         // Phase 3: 等待配置就绪 (字体在后台继续)
         let settings = settings_handle.join().unwrap_or_else(|_| {
             log_warn!("Settings thread panicked, using defaults");
             Settings::default()
         });
         perf_log!("Settings loaded", t0);
-        
+
         // Phase 4: 创建应用实例
         let mut app = Self::default();
         app.settings = settings;
         app.start_loader();
-        
+
         // Phase 5: 字体线程 detach (在后台完成后自动应用)
         std::mem::forget(font_handle);
-        
+
         perf_log!("App initialized", t0);
         app
     }
@@ -195,16 +198,14 @@ impl FastViewApp {
             let config_path = config_dir.join("fastview").join("settings.json");
             if config_path.exists() {
                 match std::fs::read_to_string(&config_path) {
-                    Ok(content) => {
-                        match serde_json::from_str(&content) {
-                            Ok(settings) => {
-                                self.settings = settings;
-                            }
-                            Err(e) => {
-                                log_warn!("Failed to parse settings file, using defaults: {}", e);
-                            }
+                    Ok(content) => match serde_json::from_str(&content) {
+                        Ok(settings) => {
+                            self.settings = settings;
                         }
-                    }
+                        Err(e) => {
+                            log_warn!("Failed to parse settings file, using defaults: {}", e);
+                        }
+                    },
                     Err(e) => {
                         log_warn!("Failed to read settings file: {}", e);
                     }
@@ -216,11 +217,11 @@ impl FastViewApp {
     pub fn save_settings(&mut self) {
         if let Some(config_dir) = dirs::config_dir() {
             let config_path = config_dir.join("fastview").join("settings.json");
-            if let Some(parent) = config_path.parent() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    log_error!("Failed to create config directory: {}", e);
-                    return;
-                }
+            if let Some(parent) = config_path.parent()
+                && let Err(e) = std::fs::create_dir_all(parent)
+            {
+                log_error!("Failed to create config directory: {}", e);
+                return;
             }
             match serde_json::to_string_pretty(&self.settings) {
                 Ok(content) => {
@@ -270,16 +271,15 @@ impl FastViewApp {
         }
     }
 
-
-
     /// 按需生成导航缩略图纹理
     fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
         // 检查是否已有缓存的缩略图纹理
         if let Some((cached_path, texture)) = &self.nav_thumbnail
             && let Some(ref current_path) = self.current_path
-                && cached_path == current_path {
-                    return Some(texture.clone());
-                }
+            && cached_path == current_path
+        {
+            return Some(texture.clone());
+        }
 
         // 没有缓存或路径变化，从图片缓存中获取数据生成缩略图
         if let Some(ref path) = self.current_path {
@@ -294,12 +294,17 @@ impl FastViewApp {
 
                         // 计算缩略图尺寸（保持宽高比）
                         let max_thumb_size = 120;
-                        let scale = (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
+                        let scale =
+                            (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
                         let thumb_w = (image.width as f32 * scale) as u32;
                         let thumb_h = (image.height as f32 * scale) as u32;
 
                         // 从原始像素数据创建 RgbaImage
-                        if let Some(img) = image::RgbaImage::from_raw(image.width, image.height, image.data.clone()) {
+                        if let Some(img) = image::RgbaImage::from_raw(
+                            image.width,
+                            image.height,
+                            image.data.clone(),
+                        ) {
                             // 生成缩略图（非常快，因为只是缩放操作）
                             let thumb_img = thumbnail(&img, thumb_w, thumb_h);
 
@@ -308,8 +313,12 @@ impl FastViewApp {
                                 [thumb_w as usize, thumb_h as usize],
                                 thumb_img.as_raw(),
                             );
-                            let texture = ui.ctx().load_texture("nav_thumbnail", color_image, egui::TextureOptions::LINEAR);
-                            
+                            let texture = ui.ctx().load_texture(
+                                "nav_thumbnail",
+                                color_image,
+                                egui::TextureOptions::LINEAR,
+                            );
+
                             // 缓存纹理
                             self.nav_thumbnail = Some((path.clone(), texture.clone()));
                             return Some(texture);
@@ -322,8 +331,12 @@ impl FastViewApp {
                             [thumb_image.width as usize, thumb_image.height as usize],
                             &thumb_image.data,
                         );
-                        let texture = ui.ctx().load_texture("nav_thumbnail", color_image, egui::TextureOptions::LINEAR);
-                        
+                        let texture = ui.ctx().load_texture(
+                            "nav_thumbnail",
+                            color_image,
+                            egui::TextureOptions::LINEAR,
+                        );
+
                         // 缓存纹理
                         self.nav_thumbnail = Some((path.clone(), texture.clone()));
                         return Some(texture);
@@ -370,7 +383,8 @@ impl FastViewApp {
                     [image.width as usize, image.height as usize],
                     &image.data,
                 );
-                let texture = ctx.load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
+                let texture =
+                    ctx.load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
 
                 debug_log!(
                     "[{:.3}s] [APP] 缓存纹理创建完成: {}",
@@ -398,15 +412,22 @@ impl FastViewApp {
             CacheEntry::TiledMeta(tiled) => {
                 // 处理分块图片
                 let image_size = egui::vec2(tiled.width as f32, tiled.height as f32);
-                
+
                 // 创建缩略图文理作为背景
                 let thumb_texture_id = format!("thumb_{:?}", path.file_name());
                 let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
-                    [tiled.thumbnail.width as usize, tiled.thumbnail.height as usize],
+                    [
+                        tiled.thumbnail.width as usize,
+                        tiled.thumbnail.height as usize,
+                    ],
                     &tiled.thumbnail.data,
                 );
-                let thumb_texture = ctx.load_texture(&thumb_texture_id, thumb_color_image, egui::TextureOptions::LINEAR);
-                
+                let thumb_texture = ctx.load_texture(
+                    &thumb_texture_id,
+                    thumb_color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+
                 // 设置缩略图为当前纹理
                 self.texture = Some(thumb_texture);
                 self.image_size = image_size;
@@ -423,7 +444,7 @@ impl FastViewApp {
                     let mut cache_guard = lock_or_recover(&self.image_cache);
                     cache_guard.put(path.clone(), CacheEntry::TiledMeta(tiled));
                 }
-                
+
                 // 请求加载可见区域的块
                 self.request_visible_tiles(ctx);
             }
@@ -503,6 +524,15 @@ impl FastViewApp {
             path.file_name()
         );
         self.load_image(&path, ctx).ok();
+
+        // 请求生成周围的缩略图
+        let cmd_tx = self.cmd_tx.clone();
+        self.thumbnail_mgr.request_surrounding_thumbnails(
+            &self.current_images,
+            self.current_index,
+            &cmd_tx,
+            5, // 前后各5张
+        );
     }
 
     pub fn next_image(&mut self, ctx: &egui::Context) {
@@ -538,6 +568,15 @@ impl FastViewApp {
             path.file_name()
         );
         self.load_image(&path, ctx).ok();
+
+        // 请求生成周围的缩略图
+        let cmd_tx = self.cmd_tx.clone();
+        self.thumbnail_mgr.request_surrounding_thumbnails(
+            &self.current_images,
+            self.current_index,
+            &cmd_tx,
+            5, // 前后各5张
+        );
     }
 
     pub fn zoom_in(&mut self, current_scale: f32) {
@@ -608,25 +647,24 @@ impl FastViewApp {
         };
 
         // 需要扫描目录
-        if need_rescan
-            && let Some(parent) = path.parent() {
-                debug_log!(
-                    "[{:.3}s] [APP] 触发目录扫描: {:?}",
-                    elapsed_ms() as f64 / 1000.0,
-                    parent
-                );
+        if need_rescan && let Some(parent) = path.parent() {
+            debug_log!(
+                "[{:.3}s] [APP] 触发目录扫描: {:?}",
+                elapsed_ms() as f64 / 1000.0,
+                parent
+            );
 
-                // 清除旧缓存
-                self.dir_cache = None;
-                
-                // 发送扫描命令到后台线程
-                if let Some(ref tx) = self.cmd_tx {
-                    let _ = tx.send(LoadCommand::ScanDirectory {
-                        dir_path: parent.to_path_buf(),
-                    });
-                }
-                // 注意：此时不设置 current_images，等待扫描结果返回后再更新
+            // 清除旧缓存
+            self.dir_cache = None;
+
+            // 发送扫描命令到后台线程
+            if let Some(ref tx) = self.cmd_tx {
+                let _ = tx.send(LoadCommand::ScanDirectory {
+                    dir_path: parent.to_path_buf(),
+                });
             }
+            // 注意：此时不设置 current_images，等待扫描结果返回后再更新
+        }
     }
 
     /// 预加载相邻图片(智能方向性预加载)
@@ -733,72 +771,73 @@ impl FastViewApp {
     /// 请求加载可见区域的块
     fn request_visible_tiles(&mut self, ctx: &egui::Context) {
         if let Some(ref tiled) = self.tiled_image
-            && let Some(ref path) = self.current_path {
-                // 计算当前可见区域对应的块
-                let available = ctx.content_rect().size();
-                
-                // 根据当前缩放和偏移计算可见区域
-                let mut size = egui::vec2(tiled.width as f32, tiled.height as f32);
-                match self.zoom_mode {
-                    ZoomMode::Fit => {
-                        let scale_x = available.x / size.x;
-                        let scale_y = available.y / size.y;
-                        let scale = scale_x.min(scale_y);
-                        size *= scale;
-                    }
-                    ZoomMode::Fill => {
-                        let scale = (available.x / size.x).max(available.y / size.y);
-                        size *= scale;
-                    }
-                    ZoomMode::Original => {
-                        // 原始尺寸
-                    }
-                    ZoomMode::Custom => {
-                        size *= self.zoom;
-                    }
+            && let Some(ref path) = self.current_path
+        {
+            // 计算当前可见区域对应的块
+            let available = ctx.content_rect().size();
+
+            // 根据当前缩放和偏移计算可见区域
+            let mut size = egui::vec2(tiled.width as f32, tiled.height as f32);
+            match self.zoom_mode {
+                ZoomMode::Fit => {
+                    let scale_x = available.x / size.x;
+                    let scale_y = available.y / size.y;
+                    let scale = scale_x.min(scale_y);
+                    size *= scale;
                 }
+                ZoomMode::Fill => {
+                    let scale = (available.x / size.x).max(available.y / size.y);
+                    size *= scale;
+                }
+                ZoomMode::Original => {
+                    // 原始尺寸
+                }
+                ZoomMode::Custom => {
+                    size *= self.zoom;
+                }
+            }
 
-                // 计算可见区域在原始图片中的位置
-                // image_rect 的中心是 available/2 + image_offset
-                // 所以 image_rect.min = (available - size) / 2 + image_offset
-                let rect_min_x = (available.x - size.x) / 2.0 + self.image_offset.x;
-                let rect_min_y = (available.y - size.y) / 2.0 + self.image_offset.y;
-                
-                // 可见区域占整个图片的比例
-                let view_left_ratio = (-rect_min_x / size.x).clamp(0.0, 1.0);
-                let view_top_ratio = (-rect_min_y / size.y).clamp(0.0, 1.0);
-                let view_right_ratio = ((-rect_min_x + available.x) / size.x).clamp(0.0, 1.0);
-                let view_bottom_ratio = ((-rect_min_y + available.y) / size.y).clamp(0.0, 1.0);
-                
-                // 转换到原始图片坐标
-                let view_left = view_left_ratio * tiled.width as f32;
-                let view_top = view_top_ratio * tiled.height as f32;
-                let view_right = view_right_ratio * tiled.width as f32;
-                let view_bottom = view_bottom_ratio * tiled.height as f32;
+            // 计算可见区域在原始图片中的位置
+            // image_rect 的中心是 available/2 + image_offset
+            // 所以 image_rect.min = (available - size) / 2 + image_offset
+            let rect_min_x = (available.x - size.x) / 2.0 + self.image_offset.x;
+            let rect_min_y = (available.y - size.y) / 2.0 + self.image_offset.y;
 
-                // 计算需要加载的块范围
-                let start_col = (view_left / tiled.tile_size as f32) as u32;
-                let end_col = ((view_right / tiled.tile_size as f32).ceil() as u32).min(tiled.cols);
-                let start_row = (view_top / tiled.tile_size as f32) as u32;
-                let end_row = ((view_bottom / tiled.tile_size as f32).ceil() as u32).min(tiled.rows);
+            // 可见区域占整个图片的比例
+            let view_left_ratio = (-rect_min_x / size.x).clamp(0.0, 1.0);
+            let view_top_ratio = (-rect_min_y / size.y).clamp(0.0, 1.0);
+            let view_right_ratio = ((-rect_min_x + available.x) / size.x).clamp(0.0, 1.0);
+            let view_bottom_ratio = ((-rect_min_y + available.y) / size.y).clamp(0.0, 1.0);
 
-                // 请求加载这些块
-                if let Some(ref tx) = self.cmd_tx {
-                    for row in start_row..end_row {
-                        for col in start_col..end_col {
-                            // 检查是否已经加载
-                            if !self.tile_textures.contains_key(&(col, row)) {
-                                let _ = tx.send(LoadCommand::LoadTile {
-                                    path: path.clone(),
-                                    col,
-                                    row,
-                                    priority: LoadPriority::High,
-                                });
-                            }
+            // 转换到原始图片坐标
+            let view_left = view_left_ratio * tiled.width as f32;
+            let view_top = view_top_ratio * tiled.height as f32;
+            let view_right = view_right_ratio * tiled.width as f32;
+            let view_bottom = view_bottom_ratio * tiled.height as f32;
+
+            // 计算需要加载的块范围
+            let start_col = (view_left / tiled.tile_size as f32) as u32;
+            let end_col = ((view_right / tiled.tile_size as f32).ceil() as u32).min(tiled.cols);
+            let start_row = (view_top / tiled.tile_size as f32) as u32;
+            let end_row = ((view_bottom / tiled.tile_size as f32).ceil() as u32).min(tiled.rows);
+
+            // 请求加载这些块
+            if let Some(ref tx) = self.cmd_tx {
+                for row in start_row..end_row {
+                    for col in start_col..end_col {
+                        // 检查是否已经加载
+                        if !self.tile_textures.contains_key(&(col, row)) {
+                            let _ = tx.send(LoadCommand::LoadTile {
+                                path: path.clone(),
+                                col,
+                                row,
+                                priority: LoadPriority::High,
+                            });
                         }
                     }
                 }
             }
+        }
     }
 
     /// 渲染已加载的块
@@ -826,11 +865,12 @@ impl FastViewApp {
                     LAST_TILE_COUNT = self.tile_textures.len();
                 }
             }
-            
+
             // 遍历所有已加载的块纹理并渲染
             for ((col, row), texture) in &self.tile_textures {
                 // 找到对应的块信息
-                if let Some(tile_info) = tiled.tiles.iter().find(|t| t.col == *col && t.row == *row) {
+                if let Some(tile_info) = tiled.tiles.iter().find(|t| t.col == *col && t.row == *row)
+                {
                     // 计算缩放比例：显示尺寸 / 原始图片尺寸
                     let scale_x = display_size.x / original_size.x;
                     let scale_y = display_size.y / original_size.y;
@@ -849,7 +889,10 @@ impl FastViewApp {
                     );
 
                     // 渲染块纹理，应用相同的旋转
-                    let mut tile_image = egui::Image::new((texture.id(), egui::vec2(tile_display_w, tile_display_h)));
+                    let mut tile_image = egui::Image::new((
+                        texture.id(),
+                        egui::vec2(tile_display_w, tile_display_h),
+                    ));
                     if rotation != 0.0 {
                         let angle_rad = rotation * std::f32::consts::TAU / 360.0;
                         tile_image = tile_image.rotate(angle_rad, egui::Vec2::splat(0.5));
@@ -921,19 +964,19 @@ impl Drop for FastViewApp {
         // 优雅关闭后台加载器线程
         if let Some(handle) = self.loader_handle.take() {
             debug_log!("[APP] Shutting down image loader thread...");
-            
+
             // 注意:当前 loader 没有 Shutdown 命令,线程会在 channel 关闭后自动退出
             // 这里我们简单地 detach,让线程自然结束
             drop(handle);
-            
+
             debug_log!("[APP] Loader thread detached");
         }
-        
+
         // 清理纹理资源
         self.texture = None;
         self.nav_thumbnail = None;
         self.tile_textures.clear();
-        
+
         debug_log!("[APP] FastViewApp resources cleaned up");
     }
 }
@@ -1264,21 +1307,38 @@ impl eframe::App for FastViewApp {
                             // 将分块图片元数据存入缓存
                             {
                                 let mut cache_guard = lock_or_recover(&self.image_cache);
-                                let memory_bytes = (tiled_image.thumbnail.width * tiled_image.thumbnail.height * 4) as usize;
+                                let memory_bytes = (tiled_image.thumbnail.width
+                                    * tiled_image.thumbnail.height
+                                    * 4)
+                                    as usize;
                                 self.evict_if_needed(&mut cache_guard, memory_bytes);
-                                cache_guard.put(path.clone(), CacheEntry::TiledMeta(tiled_image.clone()));
+                                cache_guard
+                                    .put(path.clone(), CacheEntry::TiledMeta(tiled_image.clone()));
                             }
 
                             // 应用缓存条目（会创建缩略图纹理并请求加载可见块）
-                            self.apply_cached_entry(CacheEntry::TiledMeta(tiled_image), &path, ui.ctx());
-                            
+                            self.apply_cached_entry(
+                                CacheEntry::TiledMeta(tiled_image),
+                                &path,
+                                ui.ctx(),
+                            );
+
                             needs_prefetch = true;
                             path_for_dir_update = Some(path.clone());
-                            
+
                             ui.ctx().request_repaint();
                         }
                     }
-                    LoadResult::TileReady { path, col, row, data, width, height, x: _, y: _ } => {
+                    LoadResult::TileReady {
+                        path,
+                        col,
+                        row,
+                        data,
+                        width,
+                        height,
+                        x: _,
+                        y: _,
+                    } => {
                         debug_log!(
                             "[{:.3}s] [APP] 收到块: {:?} ({},{}) - {}x{}",
                             elapsed_ms() as f64 / 1000.0,
@@ -1317,7 +1377,7 @@ impl eframe::App for FastViewApp {
                             path.file_name(),
                             error
                         );
-                        
+
                         // 如果是当前图片，显示错误
                         if self.current_path.as_ref() == Some(&path) {
                             self.load_error = Some(format!(
@@ -1331,22 +1391,22 @@ impl eframe::App for FastViewApp {
                         }
                     }
                     LoadResult::ThumbnailReady { path, image } => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[APP] Received thumbnail result for {:?}", path.file_name());
+
                         // 缩略图生成完成，存入缓存
-                        debug_log!(
-                            "[PERF] Thumbnail ready for {:?}: {}x{}",
-                            path.file_name(),
-                            image.width,
-                            image.height
-                        );
-                        
-                        // TODO: 将缩略图添加到 thumbnail_cache
+                        let result_ref = LoadResult::ThumbnailReady {
+                            path: path.clone(),
+                            image: image.clone(),
+                        };
+                        self.thumbnail_mgr.process_result(&result_ref, ui.ctx());
                     }
                     LoadResult::ThumbnailFailed { path, error } => {
-                        debug_log!(
-                            "[WARN] Thumbnail failed for {:?}: {}",
-                            path.file_name(),
-                            error
-                        );
+                        let result_ref = LoadResult::ThumbnailFailed {
+                            path: path.clone(),
+                            error: error.clone(),
+                        };
+                        self.thumbnail_mgr.process_result(&result_ref, ui.ctx());
                     }
                 }
             }
@@ -1488,11 +1548,15 @@ impl eframe::App for FastViewApp {
                     // 如果是分块图片，渲染已加载的块
                     if let Some(ref tiled) = self.tiled_image {
                         // 对于分块图片，我们需要使用原始图片尺寸来计算缩放比例
-                        let original_size = egui::vec2(
-                            tiled.width as f32,
-                            tiled.height as f32,
+                        let original_size = egui::vec2(tiled.width as f32, tiled.height as f32);
+                        self.render_tiles(
+                            ui,
+                            absolute_rect,
+                            size,
+                            original_size,
+                            available,
+                            self.rotation,
                         );
-                        self.render_tiles(ui, absolute_rect, size, original_size, available, self.rotation);
                     }
 
                     // 检查是否需要显示导航缩略图
@@ -1532,8 +1596,8 @@ impl eframe::App for FastViewApp {
                     }
 
                     // 显示缩略图导航（按需生成）
-                    if need_navigation
-                        && let Some(thumb_tex) = self.get_or_create_nav_thumbnail(ui) {
+                    if need_navigation && let Some(thumb_tex) = self.get_or_create_nav_thumbnail(ui)
+                    {
                         let img_ratio = self.image_size.x / self.image_size.y;
 
                         // 缩略图尺寸：保持宽高比，最大边120px
@@ -1680,7 +1744,7 @@ impl eframe::App for FastViewApp {
                                     );
                                 }
                             });
-                        }
+                    }
                 } else if self.current_path.is_some() {
                     // Loading 状态或错误状态
                     if let Some(ref error_msg) = self.load_error {
@@ -1803,6 +1867,9 @@ impl eframe::App for FastViewApp {
                                 // 如果关闭了快捷键窗口，从栈中移除
                                 self.window_stack.retain(|w| w != &WindowType::Shortcuts);
                             }
+                        }
+                        egui::Key::T => {
+                            self.thumbnail_mgr.toggle();
                         }
                         egui::Key::Space => {
                             self.is_drag_mode = true;
@@ -2070,6 +2137,28 @@ impl eframe::App for FastViewApp {
         // 如果有待处理的加载任务，持续请求重绘以确保及时接收结果
         if self.current_path.is_some() && self.texture.is_none() {
             ui.ctx().request_repaint();
+        }
+
+        // 渲染缩略图导航栏
+        let clicked_index = {
+            let ctx = ui.ctx().clone();
+            let current_images = self.current_images.clone();
+            let current_index = self.current_index;
+            let cmd_tx = self.cmd_tx.clone();
+
+            self.thumbnail_mgr
+                .render(ui, &ctx, &current_images, current_index, &cmd_tx)
+        };
+
+        // 处理点击事件
+        if let Some(index) = clicked_index
+            && index < self.current_images.len()
+            && index != self.current_index
+        {
+            self.current_index = index;
+            let path = self.current_images[index].clone();
+            let ctx = ui.ctx().clone();
+            let _ = self.load_image(&path, &ctx);
         }
     }
 }

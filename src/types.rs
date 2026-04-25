@@ -24,7 +24,7 @@ pub struct Settings {
     pub language: Language,
     pub max_cache_size: usize,
     pub show_status_bar: bool,
-    pub thumbnail_bar_enabled: bool,  // 缩略图导航栏开关
+    pub thumbnail_bar_enabled: bool, // 缩略图导航栏开关
 }
 
 impl Default for Settings {
@@ -33,7 +33,7 @@ impl Default for Settings {
             language: Language::default(),
             max_cache_size: 10,
             show_status_bar: true,
-            thumbnail_bar_enabled: true,  // 默认启用
+            thumbnail_bar_enabled: true, // 默认启用
         }
     }
 }
@@ -137,7 +137,7 @@ mod tests {
             width: 50,
             height: 50,
         });
-        
+
         let tiled = TiledImage {
             width: 1000,
             height: 1000,
@@ -147,7 +147,7 @@ mod tests {
             cols: 1,
             rows: 1,
         };
-        
+
         let entry = CacheEntry::TiledMeta(Arc::new(tiled));
         // 只计算缩略图的内存
         assert_eq!(entry.estimated_memory_bytes(), 50 * 50 * 4);
@@ -160,7 +160,7 @@ mod tests {
         let lang = Language::default();
         // 至少确保不会 panic
         match lang {
-            Language::Chinese | Language::English => {},
+            Language::Chinese | Language::English => {}
         }
     }
 
@@ -169,5 +169,6 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.max_cache_size > 0);
         assert!(settings.show_status_bar); // 默认显示状态栏
+        assert!(settings.thumbnail_bar_enabled); // 默认启用缩略图栏
     }
 }

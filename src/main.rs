@@ -2,6 +2,8 @@ mod app;
 mod fonts;
 mod i18n;
 mod loader;
+mod thumbnail;
+mod thumbnail_manager;
 mod types;
 mod utils;
 
@@ -30,7 +32,7 @@ macro_rules! perf_log {
 #[cfg(all(windows, not(debug_assertions)))]
 fn hide_console_window() {
     use windows_sys::Win32::System::Console::GetConsoleWindow;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
     unsafe {
         let hwnd = GetConsoleWindow();
         if !hwnd.is_null() {
