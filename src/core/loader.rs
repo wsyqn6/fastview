@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::debug_log;
 use crate::log_error;
-use crate::types::{DecodedImage, TileInfo, TiledImage};
+use crate::core::types::{DecodedImage, TileInfo, TiledImage};
 use crate::utils::lock_or_recover;
 use rayon::ThreadPool;
 

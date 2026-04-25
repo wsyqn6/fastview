@@ -1,7 +1,7 @@
 /// 国际化（i18n）模块
 ///
 /// 管理应用的多语言文本
-use crate::types::Language;
+use crate::core::types::Language;
 
 /// 文本键枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

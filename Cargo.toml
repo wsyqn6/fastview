@@ -37,7 +37,3 @@ codegen-units = 1
 lto = true
 strip = true
 panic = "abort"      # 关键!减小体积
-
-[[example]]
-name = "generate_test_image"
-path = "examples/generate_test_image.rs"

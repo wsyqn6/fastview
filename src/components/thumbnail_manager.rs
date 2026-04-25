@@ -3,8 +3,8 @@ use eframe::egui;
 use std::cell::Cell;
 use std::path::PathBuf;
 
-use crate::loader::{LoadCommand, LoadResult};
-use crate::thumbnail::ThumbnailBar;
+use crate::core::loader::{LoadCommand, LoadResult};
+use crate::core::thumbnail::ThumbnailBar;
 
 /// 缩略图管理器
 pub struct ThumbnailManager {

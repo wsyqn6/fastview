@@ -1,10 +1,8 @@
 mod app;
-mod fonts;
-mod i18n;
-mod loader;
-mod thumbnail;
-mod thumbnail_manager;
-mod types;
+mod components;
+mod core;
+mod handlers;
+mod ui;
 mod utils;
 
 use app::FastViewApp;

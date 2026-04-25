@@ -1,4 +1,4 @@
-use crate::loader::{LoadCommand, LoadPriority};
+use crate::core::loader::{LoadCommand, LoadPriority};
 use crate::utils::to_non_zero_usize;
 /// 缩略图导航栏模块
 use eframe::egui;

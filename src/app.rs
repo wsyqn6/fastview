@@ -4,17 +4,24 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::debug_log;
-use crate::fonts::{setup_minimal_fonts, start_async_font_loader};
-use crate::i18n::TextKey;
-use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
-use crate::types::{CacheEntry, ImageCache, Language, Settings, TiledImage, ZoomMode};
+use crate::core::{ImageCache, LoadCommand, LoadPriority, LoadResult, Settings, TextKey, TiledImage, ZoomMode};
+use crate::core::loader::ImageLoader;
+use crate::core::types::CacheEntry;
+use crate::ui::fonts::{setup_minimal_fonts, start_async_font_loader};
+use crate::ui::{render_menu_bar, render_status_content};
+use crate::handlers;
+use crate::handlers::keyboard;
+use crate::ui::dialogs;
+
+use crate::ui::lifecycle;
+use crate::components::thumbnail_manager::ThumbnailManager;
 use crate::utils::lock_or_recover;
 use crate::{log_error, log_warn, perf_log};
 
 // 全局启动时间（用于相对时间日志）
 static START_TIME: once_cell::sync::Lazy<Instant> = once_cell::sync::Lazy::new(Instant::now);
 
-fn elapsed_ms() -> u64 {
+pub(crate) fn elapsed_ms() -> u64 {
     START_TIME.elapsed().as_millis() as u64
 }
 
@@ -42,15 +49,15 @@ fn load_settings_from_disk() -> Settings {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum WindowType {
+pub(crate) enum WindowType {
     Shortcuts,
     Settings,
     About,
 }
 
 #[derive(Clone)]
-struct DirectoryCache {
-    images: Vec<PathBuf>,
+pub(crate) struct DirectoryCache {
+    pub(crate) images: Vec<PathBuf>,
 }
 
 pub struct FastViewApp {
@@ -78,26 +85,26 @@ pub struct FastViewApp {
     pub load_error: Option<String>, // 加载错误信息
 
     // 窗口打开顺序栈，用于ESC键后开先关逻辑
-    window_stack: Vec<WindowType>,
+    pub(crate) window_stack: Vec<WindowType>,
 
     // 目录缓存，避免频繁扫描文件系统
-    dir_cache: Option<DirectoryCache>,
+    pub(crate) dir_cache: Option<DirectoryCache>,
 
     // 新的加载器相关字段
-    cmd_tx: Option<std::sync::mpsc::Sender<LoadCommand>>,
-    result_rx: Option<std::sync::mpsc::Receiver<LoadResult>>,
+    pub(crate) cmd_tx: Option<std::sync::mpsc::Sender<LoadCommand>>,
+    pub(crate) result_rx: Option<std::sync::mpsc::Receiver<LoadResult>>,
     loader_handle: Option<std::thread::JoinHandle<()>>,
 
     // UI 自动隐藏逻辑
-    last_mouse_move: std::time::Instant,
+    pub(crate) last_mouse_move: std::time::Instant,
     is_ui_visible: bool, // 控制全屏下菜单栏和状态栏的可见性
 
     // 分块图片相关
-    tiled_image: Option<Arc<TiledImage>>,
-    tile_textures: std::collections::HashMap<(u32, u32), egui::TextureHandle>, // 已加载的块纹理
+    pub(crate) tiled_image: Option<Arc<TiledImage>>,
+    pub(crate) tile_textures: std::collections::HashMap<(u32, u32), egui::TextureHandle>, // 已加载的块纹理
 
     // 缩略图管理器
-    thumbnail_mgr: crate::thumbnail_manager::ThumbnailManager,
+    pub(crate) thumbnail_mgr: ThumbnailManager,
 }
 
 impl Default for FastViewApp {
@@ -140,7 +147,7 @@ impl Default for FastViewApp {
             tiled_image: None,
             tile_textures: std::collections::HashMap::new(),
 
-            thumbnail_mgr: crate::thumbnail_manager::ThumbnailManager::new(),
+            thumbnail_mgr: ThumbnailManager::new(),
         }
     }
 }
@@ -249,17 +256,17 @@ impl FastViewApp {
         }
     }
 
-    fn t(&self, key: TextKey) -> &'static str {
+    pub(crate) fn t(&self, key: TextKey) -> &'static str {
         key.text(self.settings.language)
     }
 
     /// 获取应用版本号
-    fn get_version(&self) -> &'static str {
+    pub(crate) fn get_version(&self) -> &'static str {
         env!("CARGO_PKG_VERSION")
     }
 
     // 格式化文件大小
-    fn format_file_size(&self, bytes: u64) -> String {
+    pub(crate) fn format_file_size(&self, bytes: u64) -> String {
         if bytes < 1024 {
             format!("{} B", bytes)
         } else if bytes < 1024 * 1024 {
@@ -272,7 +279,7 @@ impl FastViewApp {
     }
 
     /// 按需生成导航缩略图纹理
-    fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
+    pub(crate) fn get_or_create_nav_thumbnail(&mut self, ui: &mut egui::Ui) -> Option<egui::TextureHandle> {
         // 检查是否已有缓存的缩略图纹理
         if let Some((cached_path, texture)) = &self.nav_thumbnail
             && let Some(ref current_path) = self.current_path
@@ -364,7 +371,7 @@ impl FastViewApp {
     }
 
     /// 应用缓存条目
-    fn apply_cached_entry(&mut self, entry: CacheEntry, path: &PathBuf, ctx: &egui::Context) {
+    pub(crate) fn apply_cached_entry(&mut self, entry: CacheEntry, path: &PathBuf, ctx: &egui::Context) {
         debug_log!(
             "[{:.3}s] [APP] 缓存命中: {:?}",
             elapsed_ms() as f64 / 1000.0,
@@ -615,7 +622,7 @@ impl FastViewApp {
     }
 
     /// 更新目录列表(异步扫描，仅首次加载时执行)
-    fn update_directory_list(&mut self, path: &PathBuf) {
+    pub(crate) fn update_directory_list(&mut self, path: &PathBuf) {
         // 检查是否需要重新扫描目录
         let need_rescan = if let Some(dir_cache) = &self.dir_cache {
             // 如果缓存存在，检查当前图片是否在缓存的目录中
@@ -668,7 +675,7 @@ impl FastViewApp {
     }
 
     /// 预加载相邻图片(智能方向性预加载)
-    fn preload_adjacent_images(&mut self, _ctx: &egui::Context) {
+    pub(crate) fn preload_adjacent_images(&mut self, _ctx: &egui::Context) {
         if self.current_images.is_empty() || self.current_index >= self.current_images.len() {
             return;
         }
@@ -841,7 +848,7 @@ impl FastViewApp {
     }
 
     /// 渲染已加载的块
-    fn render_tiles(
+    pub(crate) fn render_tiles(
         &self,
         ui: &mut egui::Ui,
         image_rect: egui::Rect,
@@ -927,7 +934,7 @@ impl FastViewApp {
     }
 
     /// 内存检查和淘汰(如果超出限制则移除最旧条目)
-    fn evict_if_needed(
+    pub(crate) fn evict_if_needed(
         &self,
         cache: &mut lru::LruCache<PathBuf, CacheEntry>,
         new_entry_bytes: usize,
@@ -983,452 +990,17 @@ impl Drop for FastViewApp {
 
 impl eframe::App for FastViewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // 全屏模式下的 UI 自动隐藏逻辑
-        if self.is_fullscreen {
-            let pointer_delta = ui.input(|i| i.pointer.delta());
-            let any_motion =
-                pointer_delta != egui::Vec2::ZERO || ui.input(|i| i.pointer.any_pressed());
+        // 处理全屏UI自动隐藏
+        lifecycle::handle_fullscreen_ui(self, ui);
 
-            if any_motion {
-                self.last_mouse_move = Instant::now();
-                ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
-            } else {
-                let elapsed = self.last_mouse_move.elapsed().as_secs_f32();
-                if elapsed > 3.0 {
-                    ui.ctx()
-                        .send_viewport_cmd(egui::ViewportCommand::CursorVisible(false));
-                }
-            }
-        } else {
-            // 非全屏模式下确保光标始终可见
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::CursorVisible(true));
-        }
+        // 渲染菜单栏
+        render_menu_bar(self, ui);
 
-        // 菜单栏显示逻辑：仅在全屏模式下不显示，其他情况根据无边框设置决定
-        let should_show_menu = !self.is_fullscreen && !self.is_borderless;
+        // 处理异步加载结果
+        let (needs_prefetch, path_for_dir_update) = handlers::events::handle_load_results(self, ui);
 
-        if should_show_menu {
-            // 传统菜单栏（类似 Windows 原生应用）
-            egui::Panel::top("menu_bar")
-                .exact_size(24.0)
-                .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        // 文件菜单
-                        ui.menu_button(self.t(TextKey::MenuFile), |ui| {
-                            if ui.button(self.t(TextKey::OpenFile)).clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter(
-                                        "Images",
-                                        &[
-                                            "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff",
-                                            "tif", "ico", "avif",
-                                        ],
-                                    )
-                                    .pick_file()
-                                {
-                                    self.load_image(&path, ui.ctx()).ok();
-                                }
-                                ui.close();
-                            }
-                            ui.separator();
-                            if ui.button(self.t(TextKey::Exit)).clicked() {
-                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                                ui.close();
-                            }
-                        });
-
-                        // 查看菜单
-                        ui.menu_button(self.t(TextKey::MenuView), |ui| {
-                            // 缩放模式
-                            if ui.button(self.t(TextKey::FitToWindow)).clicked() {
-                                self.zoom_mode = ZoomMode::Fit;
-                                self.image_offset = egui::Vec2::ZERO;
-                                ui.close();
-                            }
-                            if ui.button(self.t(TextKey::OriginalSize)).clicked() {
-                                self.zoom_mode = ZoomMode::Original;
-                                self.image_offset = egui::Vec2::ZERO;
-                                ui.close();
-                            }
-                            if ui.button(self.t(TextKey::FillWindow)).clicked() {
-                                self.zoom_mode = ZoomMode::Fill;
-                                self.image_offset = egui::Vec2::ZERO;
-                                ui.close();
-                            }
-                            ui.separator();
-                            // 缩放操作
-                            if ui.button(self.t(TextKey::ZoomIn)).clicked() {
-                                self.zoom_in(self.current_scale);
-                                ui.close();
-                            }
-                            if ui.button(self.t(TextKey::ZoomOut)).clicked() {
-                                self.zoom_out(self.current_scale);
-                                ui.close();
-                            }
-                            ui.separator();
-                            // 旋转
-                            if ui.button(self.t(TextKey::RotateClockwise)).clicked() {
-                                self.rotate_right();
-                                ui.close();
-                            }
-                            if ui.button(self.t(TextKey::RotateCounterClockwise)).clicked() {
-                                self.rotate_left();
-                                ui.close();
-                            }
-                            ui.separator();
-                            // 全屏
-                            if ui.button(self.t(TextKey::ToggleFullscreen)).clicked() {
-                                self.toggle_fullscreen(ui.ctx());
-                                ui.close();
-                            }
-                            // 无边框模式
-                            if ui.button(self.t(TextKey::ToggleBorderless)).clicked() {
-                                self.toggle_borderless(ui.ctx());
-                                ui.close();
-                            }
-                        });
-
-                        // 设置按钮（直接点击打开，无需下拉）
-                        if ui.button(self.t(TextKey::MenuSettings)).clicked() {
-                            self.show_settings = true;
-                            self.window_stack.push(WindowType::Settings);
-                        }
-
-                        // 帮助菜单
-                        ui.menu_button(self.t(TextKey::MenuHelp), |ui| {
-                            if ui.button(self.t(TextKey::ShortcutsHelp)).clicked() {
-                                self.show_shortcuts = !self.show_shortcuts;
-                                if self.show_shortcuts {
-                                    self.window_stack.push(WindowType::Shortcuts);
-                                } else {
-                                    // 如果关闭了快捷键窗口，从栈中移除
-                                    self.window_stack.retain(|w| w != &WindowType::Shortcuts);
-                                }
-                                ui.close();
-                            }
-                            if ui.button(self.t(TextKey::AboutFastView)).clicked() {
-                                self.show_about = true;
-                                self.window_stack.push(WindowType::About);
-                                ui.close();
-                            }
-                            ui.separator();
-                            // 检查更新（禁用状态，预留接口）
-                            ui.add_enabled_ui(false, |ui| {
-                                let _ = ui.button(self.t(TextKey::CheckForUpdates));
-                            });
-                        });
-                    });
-                });
-        }
-
-        // 检查异步加载完成的图片(统一处理)
-        let mut needs_prefetch = false;
-        let mut path_for_dir_update: Option<PathBuf> = None;
-        let mut results_processed = 0;
-
-        if let Some(rx) = &self.result_rx {
-            // 收集所有待处理的结果
-            let mut pending_results = Vec::new();
-            let recv_start = Instant::now();
-            while let Ok(result) = rx.try_recv() {
-                pending_results.push(result);
-            }
-            let recv_duration = recv_start.elapsed();
-            if !pending_results.is_empty() {
-                debug_log!(
-                    "[{:.3}s] [APP] 收集了 {} 个结果 (耗时 {}ms)",
-                    elapsed_ms() as f64 / 1000.0,
-                    pending_results.len(),
-                    recv_duration.as_millis()
-                );
-            }
-
-            // 按优先级排序：当前图片优先，其他按接收顺序
-            if !pending_results.is_empty() {
-                let current_path = self.current_path.clone();
-                pending_results.sort_by(|a, b| {
-                    let a_is_current = match a {
-                        LoadResult::ImageReady { path, .. } => current_path.as_ref() == Some(path),
-                        _ => false,
-                    };
-                    let b_is_current = match b {
-                        LoadResult::ImageReady { path, .. } => current_path.as_ref() == Some(path),
-                        _ => false,
-                    };
-
-                    // 当前图片排前面
-                    match (a_is_current, b_is_current) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => std::cmp::Ordering::Equal,
-                    }
-                });
-            }
-
-            // 处理排序后的结果
-            for result in pending_results {
-                results_processed += 1;
-                match result {
-                    LoadResult::ImageReady { path, image } => {
-                        debug_log!(
-                            "[{:.3}s] [APP] 收到图片: {:?} ({}x{})",
-                            elapsed_ms() as f64 / 1000.0,
-                            path.file_name(),
-                            image.width,
-                            image.height
-                        );
-
-                        let is_current = self.current_path.as_ref() == Some(&path);
-
-                        // 只有当前图片才立即创建纹理
-                        if is_current {
-                            // 创建纹理（使用唯一ID避免冲突）
-                            let image_size = egui::vec2(image.width as f32, image.height as f32);
-                            let texture_id = format!("image_{:?}", path.file_name());
-
-                            // 创建主纹理
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                [image.width as usize, image.height as usize],
-                                &image.data,
-                            );
-                            let texture = ui.ctx().load_texture(
-                                &texture_id,
-                                color_image,
-                                egui::TextureOptions::LINEAR,
-                            );
-
-                            debug_log!(
-                                "[{:.3}s] [APP] 纹理创建完成: {}",
-                                elapsed_ms() as f64 / 1000.0,
-                                texture_id
-                            );
-
-                            // 在设置新纹理前，显式清除旧纹理以释放内存
-                            let old_texture = self.texture.take();
-                            drop(old_texture); // 立即释放
-
-                            // 更新纹理和尺寸
-                            self.texture = Some(texture);
-                            self.image_size = image_size;
-
-                            // 重置缩放模式
-                            debug_log!("[{:.3}s] [APP] 重置缩放模式", elapsed_ms() as f64 / 1000.0);
-                            self.zoom_mode = ZoomMode::Fit;
-                            self.zoom = 1.0;
-                            self.rotation = 0.0;
-                            self.image_offset = egui::Vec2::ZERO;
-
-                            // 将解码后的数据放入缓存（供导航缩略图使用）
-                            {
-                                let mut cache_guard = lock_or_recover(&self.image_cache);
-                                let memory_bytes = (image.width * image.height * 4) as usize;
-                                self.evict_if_needed(&mut cache_guard, memory_bytes);
-                                cache_guard.put(path.clone(), CacheEntry::Decoded(image));
-                            }
-
-                            // 触发预加载（在借用结束后）
-                            needs_prefetch = true;
-
-                            // 记录需要更新目录的路径
-                            path_for_dir_update = Some(path.clone());
-                        } else {
-                            // 预加载的图片：只存入缓存，不创建纹理
-                            debug_log!(
-                                "[{:.3}s] [APP] 缓存预加载图片: {:?}",
-                                elapsed_ms() as f64 / 1000.0,
-                                path.file_name()
-                            );
-
-                            let mut cache_guard = lock_or_recover(&self.image_cache);
-                            let memory_bytes = (image.width * image.height * 4) as usize;
-
-                            // 内存检查和淘汰
-                            self.evict_if_needed(&mut cache_guard, memory_bytes);
-
-                            cache_guard.put(path.clone(), CacheEntry::Decoded(image));
-                        }
-
-                        ui.ctx().request_repaint();
-                    }
-                    LoadResult::DirectoryScanned { images } => {
-                        // 目录扫描完成，更新缓存和列表
-                        debug_log!(
-                            "[{:.3}s] [APP] 目录扫描完成: {} 张图片",
-                            elapsed_ms() as f64 / 1000.0,
-                            images.len()
-                        );
-
-                        if !images.is_empty() {
-                            // 更新目录缓存
-                            self.dir_cache = Some(DirectoryCache {
-                                images: images.clone(),
-                            });
-
-                            // 如果当前有路径，找到它在列表中的位置
-                            if let Some(ref current_path) = self.current_path {
-                                if let Some(pos) = images.iter().position(|p| p == current_path) {
-                                    debug_log!(
-                                        "[{:.3}s] [APP] 找到当前图片位置: {}",
-                                        elapsed_ms() as f64 / 1000.0,
-                                        pos
-                                    );
-                                    self.current_images = images;
-                                    self.current_index = pos;
-                                } else {
-                                    debug_log!(
-                                        "[{:.3}s] [APP] 警告：当前图片不在扫描结果中",
-                                        elapsed_ms() as f64 / 1000.0
-                                    );
-                                }
-                            } else {
-                                debug_log!(
-                                    "[{:.3}s] [APP] 警告：current_path为空",
-                                    elapsed_ms() as f64 / 1000.0
-                                );
-                            }
-
-                            ui.ctx().request_repaint();
-                        }
-                    }
-                    LoadResult::TiledImageMetaReady { path, tiled_image } => {
-                        debug_log!(
-                            "[{:.3}s] [APP] 收到分块图片元数据: {:?} ({}x{})",
-                            elapsed_ms() as f64 / 1000.0,
-                            path.file_name(),
-                            tiled_image.width,
-                            tiled_image.height
-                        );
-
-                        let is_current = self.current_path.as_ref() == Some(&path);
-
-                        if is_current {
-                            // 将分块图片元数据存入缓存
-                            {
-                                let mut cache_guard = lock_or_recover(&self.image_cache);
-                                let memory_bytes = (tiled_image.thumbnail.width
-                                    * tiled_image.thumbnail.height
-                                    * 4)
-                                    as usize;
-                                self.evict_if_needed(&mut cache_guard, memory_bytes);
-                                cache_guard
-                                    .put(path.clone(), CacheEntry::TiledMeta(tiled_image.clone()));
-                            }
-
-                            // 应用缓存条目（会创建缩略图纹理并请求加载可见块）
-                            self.apply_cached_entry(
-                                CacheEntry::TiledMeta(tiled_image),
-                                &path,
-                                ui.ctx(),
-                            );
-
-                            needs_prefetch = true;
-                            path_for_dir_update = Some(path.clone());
-
-                            ui.ctx().request_repaint();
-                        }
-                    }
-                    LoadResult::TileReady {
-                        path,
-                        col,
-                        row,
-                        data,
-                        width,
-                        height,
-                        x: _,
-                        y: _,
-                    } => {
-                        debug_log!(
-                            "[{:.3}s] [APP] 收到块: {:?} ({},{}) - {}x{}",
-                            elapsed_ms() as f64 / 1000.0,
-                            path.file_name(),
-                            col,
-                            row,
-                            width,
-                            height
-                        );
-
-                        let is_current = self.current_path.as_ref() == Some(&path);
-
-                        if is_current {
-                            // 创建块纹理
-                            let texture_id = format!("tile_{:?}_{}_{}", path.file_name(), col, row);
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                                [width as usize, height as usize],
-                                &data,
-                            );
-                            let texture = ui.ctx().load_texture(
-                                &texture_id,
-                                color_image,
-                                egui::TextureOptions::LINEAR,
-                            );
-
-                            // 存储纹理
-                            self.tile_textures.insert((col, row), texture);
-
-                            ui.ctx().request_repaint();
-                        }
-                    }
-                    LoadResult::Error { path, error } => {
-                        debug_log!(
-                            "[{:.3}s] [APP] 加载失败: {:?}, error={}",
-                            elapsed_ms() as f64 / 1000.0,
-                            path.file_name(),
-                            error
-                        );
-
-                        // 如果是当前图片，显示错误
-                        if self.current_path.as_ref() == Some(&path) {
-                            self.load_error = Some(format!(
-                                "Failed to load {}: {}",
-                                path.file_name()
-                                    .map(|s| s.to_string_lossy().to_string())
-                                    .unwrap_or_default(),
-                                error
-                            ));
-                            ui.ctx().request_repaint();
-                        }
-                    }
-                    LoadResult::ThumbnailReady { path, image } => {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[APP] Received thumbnail result for {:?}", path.file_name());
-
-                        // 缩略图生成完成，存入缓存
-                        let result_ref = LoadResult::ThumbnailReady {
-                            path: path.clone(),
-                            image: image.clone(),
-                        };
-                        self.thumbnail_mgr.process_result(&result_ref, ui.ctx());
-                    }
-                    LoadResult::ThumbnailFailed { path, error } => {
-                        let result_ref = LoadResult::ThumbnailFailed {
-                            path: path.clone(),
-                            error: error.clone(),
-                        };
-                        self.thumbnail_mgr.process_result(&result_ref, ui.ctx());
-                    }
-                }
-            }
-        }
-
-        if results_processed > 0 {
-            debug_log!(
-                "[{:.3}s] [APP] 处理了 {} 个结果",
-                elapsed_ms() as f64 / 1000.0,
-                results_processed
-            );
-        }
-
-        // 更新目录列表（在借用结束后）
-        if let Some(ref path) = path_for_dir_update {
-            self.update_directory_list(path);
-        }
-
-        // 预加载相邻图片（在借用结束后）
-        if needs_prefetch {
-            self.preload_adjacent_images(ui.ctx());
-        }
+        // 处理预加载和目录更新
+        lifecycle::handle_post_load_operations(self, ui, needs_prefetch, path_for_dir_update);
 
         // Status bar - 悬浮半透明设计
         // 显示条件：设置开启 + 非全屏模式
@@ -1802,463 +1374,16 @@ impl eframe::App for FastViewApp {
                 }
             });
 
-        for event in ui.ctx().input(|i| i.events.clone()) {
-            if let egui::Event::Key {
-                key,
-                pressed,
-                modifiers,
-                ..
-            } = event
-            {
-                if pressed {
-                    match key {
-                        egui::Key::ArrowLeft => {
-                            debug_log!(
-                                "[{:.3}s] [APP] 检测到左箭头键",
-                                elapsed_ms() as f64 / 1000.0
-                            );
-                            self.prev_image(ui.ctx());
-                        }
-                        egui::Key::ArrowRight => {
-                            debug_log!(
-                                "[{:.3}s] [APP] 检测到右箭头键",
-                                elapsed_ms() as f64 / 1000.0
-                            );
-                            self.next_image(ui.ctx());
-                        }
-                        egui::Key::Equals | egui::Key::Plus => {
-                            self.zoom_in(self.current_scale);
-                        }
-                        egui::Key::Minus => {
-                            self.zoom_out(self.current_scale);
-                        }
-                        egui::Key::Num0 => {
-                            self.zoom_mode = ZoomMode::Fit;
-                            self.image_offset = egui::Vec2::ZERO;
-                        }
-                        egui::Key::Num1 => {
-                            self.zoom_mode = ZoomMode::Original;
-                            self.image_offset = egui::Vec2::ZERO;
-                        }
-                        egui::Key::Num2 => {
-                            self.zoom_mode = ZoomMode::Fill;
-                            self.image_offset = egui::Vec2::ZERO;
-                        }
-                        egui::Key::R if modifiers.shift => {
-                            self.rotate_left();
-                        }
-                        egui::Key::R => {
-                            self.rotate_right();
-                        }
-                        egui::Key::F => {
-                            self.toggle_fullscreen(ui.ctx());
-                        }
-                        egui::Key::V => {
-                            self.toggle_borderless(ui.ctx());
-                        }
-                        egui::Key::S => {
-                            self.toggle_status_bar();
-                        }
-                        egui::Key::H => {
-                            self.show_shortcuts = !self.show_shortcuts;
-                            if self.show_shortcuts {
-                                self.window_stack.push(WindowType::Shortcuts);
-                            } else {
-                                // 如果关闭了快捷键窗口，从栈中移除
-                                self.window_stack.retain(|w| w != &WindowType::Shortcuts);
-                            }
-                        }
-                        egui::Key::T => {
-                            self.thumbnail_mgr.toggle();
-                        }
-                        egui::Key::Space => {
-                            self.is_drag_mode = true;
-                        }
-                        egui::Key::Escape => {
-                            // 后开先关原则：关闭最后打开的窗口
-                            if let Some(window_type) = self.window_stack.pop() {
-                                match window_type {
-                                    WindowType::Shortcuts => self.show_shortcuts = false,
-                                    WindowType::Settings => self.show_settings = false,
-                                    WindowType::About => self.show_about = false,
-                                }
-                            }
-                            // 如果没有打开的窗口，则退出全屏或直接退出程序
-                            else if self.is_fullscreen {
-                                self.toggle_fullscreen(ui.ctx());
-                            } else {
-                                // 直接退出程序
-                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                if !pressed && key == egui::Key::Space {
-                    self.is_drag_mode = false;
-                }
-            }
+        // 处理键盘事件
+        keyboard::handle_keyboard_events(self, ui);
 
-            // 处理 ? 键 (Shift+/)
-            if let egui::Event::Text(text) = event
-                && text == "?"
-            {
-                self.show_shortcuts = !self.show_shortcuts;
-                if self.show_shortcuts {
-                    self.window_stack.push(WindowType::Shortcuts);
-                } else {
-                    self.window_stack.retain(|w| w != &WindowType::Shortcuts);
-                }
-            }
-        }
+        // 渲染对话框（设置、快捷键、关于）
+        dialogs::render_dialogs(self, ui);
 
-        // Settings window
-        if self.show_settings {
-            // Get all text outside to avoid borrowing issues
-            let lang = self.settings.language;
-            let settings_text = self.t(TextKey::MenuSettings);
-            let general_text = TextKey::General.text(lang);
-            let language_text = TextKey::Language.text(lang);
-            let chinese_text = TextKey::Chinese.text(lang);
-            let english_text = TextKey::English.text(lang);
-            let cache_text = TextKey::Cache.text(lang);
-            let max_cache_text = TextKey::MaxCacheSize.text(lang);
-            let show_status_text = TextKey::ShowStatusBar.text(lang);
-            let reset_text = TextKey::ResetSettings.text(lang);
+        // 检查是否需要持续重绘
+        lifecycle::check_needs_repaint(self, ui);
 
-            // Need to capture these outside the closure
-            let current_lang = self.settings.language;
-            let current_max_cache = self.settings.max_cache_size;
-            let current_show_status = self.settings.show_status_bar;
-
-            // Settings window - 卡片式设计，无标题栏
-            egui::Window::new(settings_text)
-                .open(&mut self.show_settings)
-                .title_bar(false) // 移除标题栏
-                .resizable(false)
-                .collapsible(false)
-                .fixed_size([320.0, 240.0])
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]) // 居中显示
-                .frame(egui::Frame::window(&ui.ctx().global_style())) // 使用窗口样式
-                .show(ui.ctx(), |ui: &mut egui::Ui| {
-                    let mut temp_lang = current_lang;
-                    let mut temp_max_cache = current_max_cache;
-                    let mut temp_show_status = current_show_status;
-
-                    ui.heading(general_text);
-                    ui.label(language_text);
-                    ui.horizontal(|ui: &mut egui::Ui| {
-                        ui.radio_value(&mut temp_lang, Language::Chinese, chinese_text);
-                        ui.radio_value(&mut temp_lang, Language::English, english_text);
-                    });
-
-                    if temp_lang != current_lang {
-                        self.settings.language = temp_lang;
-                    }
-
-                    ui.separator();
-                    ui.heading(cache_text);
-                    let slider =
-                        egui::Slider::new(&mut temp_max_cache, 3..=30).text(max_cache_text);
-                    ui.add(slider);
-
-                    if temp_max_cache != current_max_cache {
-                        self.settings.max_cache_size = temp_max_cache;
-                    }
-
-                    ui.separator();
-                    ui.checkbox(&mut temp_show_status, show_status_text);
-
-                    if temp_show_status != current_show_status {
-                        self.settings.show_status_bar = temp_show_status;
-                    }
-
-                    ui.separator();
-                    if ui.button(reset_text).clicked() {
-                        self.settings = Settings::default();
-                    }
-                });
-
-            // Auto save on changes
-            self.save_settings();
-        }
-
-        // Shortcuts window - 卡片式设计
-        if self.show_shortcuts {
-            let lang = self.settings.language;
-            let title = self.t(TextKey::ShortcutsHelp);
-
-            // 提前获取所有翻译文本，避免在闭包中借用 self
-            let navigation_text = TextKey::Navigation.text(lang);
-            let zoom_view_text = TextKey::ZoomAndView.text(lang);
-            let rotation_text = TextKey::Rotation.text(lang);
-            let system_text = TextKey::System.text(lang);
-
-            egui::Window::new(title)
-                .open(&mut self.show_shortcuts)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .collapsible(false)
-                .resizable(false)
-                .fixed_size([480.0, 360.0]) // 稍微加宽，高度更紧凑
-                .title_bar(true)
-                .show(ui.ctx(), |ui| {
-                    let visuals = &ui.ctx().global_style().visuals;
-                    ui.add_space(8.0);
-
-                    // 辅助函数：创建更具质感的键盘按键样式
-                    let key_badge = |ui: &mut egui::Ui, key: &str| {
-                        let bg_color = visuals.widgets.noninteractive.bg_fill;
-                        let stroke_color = visuals.widgets.noninteractive.bg_stroke.color;
-                        let text_color = visuals.text_color();
-
-                        egui::Frame::NONE
-                            .fill(bg_color)
-                            .stroke(egui::Stroke::new(1.0, stroke_color))
-                            .shadow(egui::epaint::Shadow {
-                                offset: [0, 2],
-                                blur: 0,
-                                spread: 0,
-                                color: stroke_color.gamma_multiply(0.5),
-                            })
-                            .corner_radius(4.0)
-                            .inner_margin(egui::Margin::symmetric(6, 2))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new(key)
-                                        .family(egui::FontFamily::Monospace)
-                                        .size(11.0)
-                                        .color(text_color),
-                                );
-                            });
-                    };
-
-                    // 辅助函数：创建快捷键行
-                    let shortcut_row = |ui: &mut egui::Ui, keys: &[&str], desc: &str| {
-                        ui.horizontal(|ui| {
-                            ui.add_space(4.0);
-                            for (i, key) in keys.iter().enumerate() {
-                                if i > 0 {
-                                    ui.label(egui::RichText::new("+").size(10.0).weak());
-                                }
-                                key_badge(ui, key);
-                            }
-                            ui.add_space(8.0);
-                            ui.label(
-                                egui::RichText::new(desc)
-                                    .size(11.0)
-                                    .color(visuals.weak_text_color()),
-                            );
-                        });
-                        ui.add_space(2.0);
-                    };
-
-                    // 分组标题
-                    let section_title = |ui: &mut egui::Ui, title: &str| {
-                        ui.add_space(6.0);
-                        ui.label(
-                            egui::RichText::new(title)
-                                .size(11.0)
-                                .strong()
-                                .color(visuals.text_color()),
-                        );
-                        ui.add_space(2.0);
-                    };
-
-                    // 双列布局
-                    ui.columns(2, |columns| {
-                        // 左列
-                        columns[0].with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                            section_title(ui, navigation_text);
-                            shortcut_row(ui, &["←", "→"], TextKey::PreviousNext.text(lang));
-                            shortcut_row(ui, &["Space"], TextKey::DragMode.text(lang));
-
-                            ui.add_space(8.0);
-                            section_title(ui, zoom_view_text);
-                            shortcut_row(ui, &["+", "-"], TextKey::ZoomInOut.text(lang));
-                            shortcut_row(ui, &["0"], TextKey::FitToWindow.text(lang));
-                            shortcut_row(ui, &["1"], TextKey::OriginalSize.text(lang));
-                            shortcut_row(ui, &["2"], TextKey::FillWindow.text(lang));
-                        });
-
-                        // 右列
-                        columns[1].with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                            section_title(ui, rotation_text);
-                            shortcut_row(ui, &["R"], TextKey::RotateLeft.text(lang));
-                            shortcut_row(ui, &["Shift", "R"], TextKey::RotateRight.text(lang));
-
-                            ui.add_space(8.0);
-                            section_title(ui, system_text);
-                            shortcut_row(ui, &["F"], TextKey::ToggleFullscreen.text(lang));
-                            shortcut_row(ui, &["V"], TextKey::ToggleBorderless.text(lang));
-                            shortcut_row(ui, &["S"], TextKey::ToggleStatusBar.text(lang));
-                            shortcut_row(ui, &["Esc"], TextKey::ExitFullscreen.text(lang));
-                            shortcut_row(ui, &["H", "?"], TextKey::ShowHideShortcuts.text(lang));
-                        });
-                    });
-
-                    ui.add_space(4.0);
-                });
-        }
-
-        // About dialog
-        if self.show_about {
-            let version = self.get_version();
-            let title = self.t(TextKey::AboutFastView);
-            let version_label = self.t(TextKey::Version);
-            let github_label = self.t(TextKey::GitHub);
-            let ok_text = self.t(TextKey::OK);
-            let description = self.t(TextKey::AppDescription);
-
-            egui::Window::new(title)
-                .open(&mut self.show_about)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .collapsible(false)
-                .resizable(false)
-                .fixed_size([320.0, 200.0])
-                .show(ui.ctx(), |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(20.0);
-                        ui.heading("FastView");
-                        ui.label(format!("{} {}", version_label, version));
-                        ui.add_space(10.0);
-                        ui.label(description);
-                        ui.add_space(10.0);
-                        ui.hyperlink_to(
-                            format!("{}: https://github.com/wsyqn6/fastview", github_label),
-                            "https://github.com/wsyqn6/fastview",
-                        );
-                        ui.add_space(20.0);
-                        // 点击确定按钮关闭窗口（通过 open 参数自动处理）
-                        let _ = ui.button(ok_text);
-                    });
-                });
-        }
-
-        // 如果有待处理的加载任务，持续请求重绘以确保及时接收结果
-        if self.current_path.is_some() && self.texture.is_none() {
-            ui.ctx().request_repaint();
-        }
-
-        // 渲染缩略图导航栏
-        let clicked_index = {
-            let ctx = ui.ctx().clone();
-            let current_images = self.current_images.clone();
-            let current_index = self.current_index;
-            let cmd_tx = self.cmd_tx.clone();
-
-            self.thumbnail_mgr
-                .render(ui, &ctx, &current_images, current_index, &cmd_tx)
-        };
-
-        // 处理点击事件
-        if let Some(index) = clicked_index
-            && index < self.current_images.len()
-            && index != self.current_index
-        {
-            self.current_index = index;
-            let path = self.current_images[index].clone();
-            let ctx = ui.ctx().clone();
-            let _ = self.load_image(&path, &ctx);
-        }
-    }
-}
-
-/// 渲染状态栏内容的辅助函数
-fn render_status_content(ui: &mut egui::Ui, visuals: &egui::Visuals, app: &FastViewApp) {
-    // 辅助函数：添加分隔符（带间距）
-    let separator = |ui: &mut egui::Ui| {
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
-    };
-
-    // 文件名（12号加粗，最大宽度200px，超出截断）
-    if let Some(ref path) = app.current_path {
-        let filename = path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        ui.scope(|ui| {
-            ui.set_max_width(200.0);
-            let response = ui.add(
-                egui::Label::new(egui::RichText::new(&filename).strong().size(12.0)).truncate(),
-            );
-            // 确保悬浮时鼠标图标不变
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
-            }
-        });
-
-        separator(ui);
-
-        // 图片尺寸（等宽字体）
-        ui.label(
-            egui::RichText::new(format!(
-                "{}×{}",
-                app.image_size.x as u32, app.image_size.y as u32
-            ))
-            .family(egui::FontFamily::Monospace)
-            .size(10.0)
-            .color(visuals.weak_text_color()),
-        );
-
-        separator(ui);
-    }
-
-    // 图片索引
-    if !app.current_images.is_empty() {
-        ui.label(
-            egui::RichText::new(format!(
-                "{}/{}",
-                app.current_index + 1,
-                app.current_images.len()
-            ))
-            .size(10.0),
-        );
-        separator(ui);
-    }
-
-    // 缩放模式（仅 Custom 模式根据比例显示颜色）
-    let zoom_text = match app.zoom_mode {
-        ZoomMode::Fit => app.t(TextKey::Fit).to_string(),
-        ZoomMode::Fill => app.t(TextKey::Fill).to_string(),
-        ZoomMode::Original => app.t(TextKey::Original).to_string(),
-        ZoomMode::Custom => format!("{}%", (app.zoom * 100.0) as u32),
-    };
-
-    let zoom_color = if app.zoom_mode == ZoomMode::Custom {
-        if app.zoom > 1.0 {
-            egui::Color32::from_rgb(255, 140, 0)
-        } else if app.zoom < 1.0 {
-            egui::Color32::from_rgb(100, 149, 237)
-        } else {
-            visuals.weak_text_color()
-        }
-    } else {
-        visuals.weak_text_color()
-    };
-
-    ui.label(egui::RichText::new(&zoom_text).size(10.0).color(zoom_color));
-
-    // 旋转角度
-    if app.rotation != 0.0 {
-        separator(ui);
-        ui.label(
-            egui::RichText::new(format!("{}°", app.rotation as u32))
-                .size(10.0)
-                .color(visuals.weak_text_color()),
-        );
-    }
-
-    // 文件大小
-    if app.file_size > 0 {
-        separator(ui);
-        ui.label(
-            egui::RichText::new(app.format_file_size(app.file_size))
-                .size(10.0)
-                .family(egui::FontFamily::Monospace)
-                .color(visuals.weak_text_color()),
-        );
+        // 处理缩略图导航栏
+        lifecycle::handle_thumbnail_navigation(self, ui);
     }
 }
