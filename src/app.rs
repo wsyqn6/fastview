@@ -4,18 +4,43 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::debug_log;
-use crate::fonts::setup_fonts;
+use crate::fonts::{setup_minimal_fonts, start_async_font_loader};
 use crate::i18n::TextKey;
 use crate::loader::{ImageLoader, LoadCommand, LoadPriority, LoadResult};
 use crate::types::{CacheEntry, ImageCache, Language, Settings, ZoomMode, TiledImage};
 use crate::utils::lock_or_recover;
-use crate::{log_error, log_warn};
+use crate::{log_error, log_warn, perf_log};
 
 // 全局启动时间（用于相对时间日志）
 static START_TIME: once_cell::sync::Lazy<Instant> = once_cell::sync::Lazy::new(Instant::now);
 
 fn elapsed_ms() -> u64 {
     START_TIME.elapsed().as_millis() as u64
+}
+
+/// 从磁盘加载配置 (用于并行初始化)
+fn load_settings_from_disk() -> Settings {
+    if let Some(config_dir) = dirs::config_dir() {
+        let config_path = config_dir.join("fastview").join("settings.json");
+        if config_path.exists() {
+            match std::fs::read_to_string(&config_path) {
+                Ok(content) => {
+                    match serde_json::from_str(&content) {
+                        Ok(settings) => {
+                            return settings;
+                        }
+                        Err(e) => {
+                            log_warn!("Failed to parse settings file, using defaults: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log_warn!("Failed to read settings file: {}", e);
+                }
+            }
+        }
+    }
+    Settings::default()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -117,11 +142,40 @@ impl Default for FastViewApp {
 
 impl FastViewApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_fonts(cc);
-
+        let t0 = Instant::now();
+        
+        // Phase 1: 立即设置最小字体 (无 I/O, <5ms)
+        setup_minimal_fonts(cc);
+        perf_log!("Minimal fonts setup", t0);
+        
+        // Phase 2: 并行启动: 字体加载 + 配置读取
+        let font_ctx = cc.egui_ctx.clone();
+        let font_handle = std::thread::spawn(move || {
+            start_async_font_loader(font_ctx);
+        });
+        
+        let settings_handle = std::thread::spawn(|| {
+            load_settings_from_disk()
+        });
+        
+        perf_log!("Parallel tasks started", t0);
+        
+        // Phase 3: 等待配置就绪 (字体在后台继续)
+        let settings = settings_handle.join().unwrap_or_else(|_| {
+            log_warn!("Settings thread panicked, using defaults");
+            Settings::default()
+        });
+        perf_log!("Settings loaded", t0);
+        
+        // Phase 4: 创建应用实例
         let mut app = Self::default();
-        app.load_settings();
+        app.settings = settings;
         app.start_loader();
+        
+        // Phase 5: 字体线程 detach (在后台完成后自动应用)
+        std::mem::forget(font_handle);
+        
+        perf_log!("App initialized", t0);
         app
     }
 

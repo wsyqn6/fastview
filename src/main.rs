@@ -17,6 +17,15 @@ macro_rules! debug_log {
     };
 }
 
+/// 性能监控宏 (仅 debug 模式)
+#[macro_export]
+macro_rules! perf_log {
+    ($label:expr, $start:expr) => {
+        #[cfg(debug_assertions)]
+        eprintln!("[PERF] {}: {}ms", $label, $start.elapsed().as_millis());
+    };
+}
+
 /// Windows 平台：在 release 模式下隐藏控制台窗口
 #[cfg(all(windows, not(debug_assertions)))]
 fn hide_console_window() {
