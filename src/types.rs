@@ -24,6 +24,7 @@ pub struct Settings {
     pub language: Language,
     pub max_cache_size: usize,
     pub show_status_bar: bool,
+    pub thumbnail_bar_enabled: bool,  // 缩略图导航栏开关
 }
 
 impl Default for Settings {
@@ -32,6 +33,7 @@ impl Default for Settings {
             language: Language::default(),
             max_cache_size: 10,
             show_status_bar: true,
+            thumbnail_bar_enabled: true,  // 默认启用
         }
     }
 }

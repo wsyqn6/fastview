@@ -52,6 +52,12 @@ pub enum LoadCommand {
         row: u32,
         priority: LoadPriority,
     },
+    /// 生成缩略图
+    GenerateThumbnail {
+        path: PathBuf,
+        size: u32,
+        priority: LoadPriority,
+    },
 }
 
 /// 加载结果（发回 UI 线程）
@@ -82,6 +88,16 @@ pub enum LoadResult {
     Error { path: PathBuf, error: String },
     /// 目录扫描完成
     DirectoryScanned { images: Vec<PathBuf> },
+    /// 缩略图生成完成
+    ThumbnailReady {
+        path: PathBuf,
+        image: Arc<DecodedImage>,
+    },
+    /// 缩略图生成失败
+    ThumbnailFailed {
+        path: PathBuf,
+        error: String,
+    },
 }
 
 struct PendingTask {
@@ -95,6 +111,7 @@ enum TaskType {
     LoadFull,
     LoadTile { col: u32, row: u32 },
     CreateTiled,
+    GenerateThumbnail { size: u32 },
 }
 
 pub struct ImageLoader {
@@ -185,6 +202,12 @@ impl ImageLoader {
                     }
                     LoadCommand::LoadTile { path, col, row, priority } => {
                         self.handle_load_tile(path, col, row, priority);
+                        if priority >= LoadPriority::High {
+                            self.process_pending();
+                        }
+                    }
+                    LoadCommand::GenerateThumbnail { path, size, priority } => {
+                        self.handle_generate_thumbnail(path, size, priority);
                         if priority >= LoadPriority::High {
                             self.process_pending();
                         }
@@ -386,6 +409,10 @@ impl ImageLoader {
                         let key = format!("{:?}_tile_{}_{}", path, col, row);
                         active.insert(PathBuf::from(key));
                     }
+                    TaskType::GenerateThumbnail { .. } => {
+                        let key = format!("{:?}_thumb", path);
+                        active.insert(PathBuf::from(key));
+                    }
                 }
             }
     
@@ -431,6 +458,14 @@ impl ImageLoader {
                             }
                         })
                     }
+                    TaskType::GenerateThumbnail { size } => {
+                        execute_thumbnail_generation(&path, *size).map(|image| {
+                            LoadResult::ThumbnailReady {
+                                path: path.clone(),
+                                image,
+                            }
+                        })
+                    }
                 };
     
                 // 从 active_tasks 中移除
@@ -442,6 +477,10 @@ impl ImageLoader {
                         }
                         TaskType::LoadTile { col, row } => {
                             let key = format!("{:?}_tile_{}_{}", path, col, row);
+                            active.remove(&PathBuf::from(key));
+                        }
+                        TaskType::GenerateThumbnail { .. } => {
+                            let key = format!("{:?}_thumb", path);
                             active.remove(&PathBuf::from(key));
                         }
                     }
@@ -688,6 +727,40 @@ fn decode_tile(
     let tile_data = tile_rgba.into_raw();
     
     Ok((tile_data, w, h, x, y))
+}
+
+/// 生成缩略图
+impl ImageLoader {
+    fn handle_generate_thumbnail(&mut self, path: PathBuf, size: u32, priority: LoadPriority) {
+        // 添加到待处理队列
+        let task = PendingTask {
+            path: path.clone(),
+            priority,
+            task_type: TaskType::GenerateThumbnail { size },
+        };
+        
+        self.pending.push_back(task);
+    }
+}
+
+/// 执行缩略图生成
+fn execute_thumbnail_generation(path: &PathBuf, size: u32) -> Result<Arc<DecodedImage>, Box<dyn std::error::Error + Send + Sync>> {
+    let img = image::open(path)?;
+    
+    // 保持宽高比，居中裁剪到指定尺寸
+    let thumbnail = img.thumbnail(size, size);
+    
+    // 转换为 RGBA
+    let rgba = thumbnail.into_rgba8();
+    let width = rgba.width();
+    let height = rgba.height();
+    let data = rgba.into_raw();
+    
+    Ok(Arc::new(DecodedImage {
+        data,
+        width,
+        height,
+    }))
 }
 
 #[cfg(test)]

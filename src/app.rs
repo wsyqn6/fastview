@@ -1330,6 +1330,24 @@ impl eframe::App for FastViewApp {
                             ui.ctx().request_repaint();
                         }
                     }
+                    LoadResult::ThumbnailReady { path, image } => {
+                        // 缩略图生成完成，存入缓存
+                        debug_log!(
+                            "[PERF] Thumbnail ready for {:?}: {}x{}",
+                            path.file_name(),
+                            image.width,
+                            image.height
+                        );
+                        
+                        // TODO: 将缩略图添加到 thumbnail_cache
+                    }
+                    LoadResult::ThumbnailFailed { path, error } => {
+                        debug_log!(
+                            "[WARN] Thumbnail failed for {:?}: {}",
+                            path.file_name(),
+                            error
+                        );
+                    }
                 }
             }
         }
