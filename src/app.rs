@@ -198,7 +198,10 @@ impl FastViewApp {
 
     fn start_loader(&mut self) {
         let (result_tx, result_rx) = std::sync::mpsc::channel();
-        let (loader, cmd_tx) = ImageLoader::new(result_tx);
+        let (mut loader, cmd_tx) = ImageLoader::new(result_tx);
+        
+        // 设置主缓存引用，让后台线程可以复用已解码数据
+        loader.set_image_cache(self.image_cache.clone());
 
         self.loader_handle = Some(std::thread::spawn(move || {
             loader.run();

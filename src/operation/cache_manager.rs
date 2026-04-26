@@ -1,8 +1,9 @@
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::app::{FastViewApp, elapsed_ms};
-use crate::core::types::CacheEntry;
+use crate::core::types::{CacheEntry, ImageCache};
 use crate::core::{LoadCommand, LoadPriority, ZoomMode};
 
 use crate::utils::lock_or_recover;
@@ -263,6 +264,44 @@ pub fn get_or_create_nav_thumbnail(
                     app.nav_thumbnail = Some((path.clone(), texture.clone()));
                     return Some(texture);
                 }
+            }
+        }
+    }
+    None
+}
+
+/// 尝试从缓存快速生成缩略图（供后台线程调用前的预检查）
+pub fn try_generate_thumbnail_from_cache(
+    image_cache: &ImageCache,
+    path: &PathBuf,
+    size: u32,
+) -> Option<Arc<crate::core::types::DecodedImage>> {
+    let mut cache_guard = lock_or_recover(image_cache);
+    if let Some(cached) = cache_guard.get(path) {
+        match cached {
+            CacheEntry::Decoded(image) => {
+                use image::imageops::thumbnail;
+                
+                // 从缓存数据快速缩放
+                if let Some(img) = image::RgbaImage::from_raw(
+                    image.width, 
+                    image.height, 
+                    image.data.clone()
+                ) {
+                    let thumb_img = thumbnail(&img, size, size);
+                    let width = thumb_img.width();
+                    let height = thumb_img.height();
+                    let data = thumb_img.into_raw();
+                    return Some(Arc::new(crate::core::types::DecodedImage {
+                        data,
+                        width,
+                        height,
+                    }));
+                }
+            }
+            CacheEntry::TiledMeta(tiled) => {
+                // 直接返回已有的缩略图
+                return Some(tiled.thumbnail.clone());
             }
         }
     }

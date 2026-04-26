@@ -4,7 +4,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::core::types::{DecodedImage, TileInfo, TiledImage};
+use crate::core::types::{CacheEntry, DecodedImage, TileInfo, TiledImage};
 use crate::log_error;
 use crate::utils::lock_or_recover;
 use rayon::ThreadPool;
@@ -51,8 +51,14 @@ pub enum LoadCommand {
         row: u32,
         priority: LoadPriority,
     },
-    /// 生成缩略图
+    /// 生成缩略图（从文件读取）
     GenerateThumbnail {
+        path: PathBuf,
+        size: u32,
+        priority: LoadPriority,
+    },
+    /// 从缓存数据生成缩略图（避免重复解码）
+    GenerateThumbnailFromCache {
         path: PathBuf,
         size: u32,
         priority: LoadPriority,
@@ -108,6 +114,7 @@ enum TaskType {
     LoadTile { col: u32, row: u32 },
     CreateTiled,
     GenerateThumbnail { size: u32 },
+    GenerateThumbnailFromCache { size: u32 },
 }
 
 pub struct ImageLoader {
@@ -128,6 +135,9 @@ pub struct ImageLoader {
     max_memory: usize,
     #[allow(dead_code)]
     current_memory: usize,
+    
+    // 引用主缓存，用于缩略图生成时复用已解码数据
+    image_cache: Option<Arc<Mutex<lru::LruCache<PathBuf, CacheEntry>>>>,
 }
 
 impl ImageLoader {
@@ -174,8 +184,14 @@ impl ImageLoader {
             pool,
             max_memory: 30 * 1024 * 1024, // 30 MB
             current_memory: 0,
+            image_cache: None, // 稍后设置
         };
         (loader, cmd_tx)
+    }
+    
+    /// 设置主缓存引用（用于缩略图生成时复用数据）
+    pub fn set_image_cache(&mut self, cache: Arc<Mutex<lru::LruCache<PathBuf, CacheEntry>>>) {
+        self.image_cache = Some(cache);
     }
 
     pub fn run(mut self) {
@@ -220,6 +236,16 @@ impl ImageLoader {
                         priority,
                     } => {
                         self.handle_generate_thumbnail(path, size, priority);
+                        if priority >= LoadPriority::High {
+                            self.process_pending();
+                        }
+                    }
+                    LoadCommand::GenerateThumbnailFromCache {
+                        path,
+                        size,
+                        priority,
+                    } => {
+                        self.handle_generate_thumbnail_from_cache(path, size, priority);
                         if priority >= LoadPriority::High {
                             self.process_pending();
                         }
@@ -416,6 +442,7 @@ impl ImageLoader {
             let result_tx = self.result_tx.clone();
             let pool = self.pool.clone();
             let active_tasks = self.active_tasks.clone();
+            let image_cache = self.image_cache.clone(); // 克隆缓存引用
 
             // 标记为正在执行
             {
@@ -428,7 +455,7 @@ impl ImageLoader {
                         let key = format!("{:?}_tile_{}_{}", path, col, row);
                         active.insert(PathBuf::from(key));
                     }
-                    TaskType::GenerateThumbnail { .. } => {
+                    TaskType::GenerateThumbnail { .. } | TaskType::GenerateThumbnailFromCache { .. } => {
                         let key = format!("{:?}_thumb", path);
                         active.insert(PathBuf::from(key));
                     }
@@ -479,6 +506,28 @@ impl ImageLoader {
                                 }
                             })
                         }
+                        TaskType::GenerateThumbnailFromCache { size } => {
+                            // 先尝试从缓存生成
+                            match execute_thumbnail_from_cache(&image_cache, &path, *size) {
+                                Ok(image) => Ok(LoadResult::ThumbnailReady {
+                                    path: path.clone(),
+                                    image,
+                                }),
+                                Err(_) => {
+                                    // 缓存未命中，降级为从文件加载
+                                    debug_log!(
+                                        "[LOADER] 缩略图缓存未命中，从文件加载: {:?}",
+                                        path.file_name()
+                                    );
+                                    execute_thumbnail_generation(&path, *size).map(|image| {
+                                        LoadResult::ThumbnailReady {
+                                            path: path.clone(),
+                                            image,
+                                        }
+                                    })
+                                }
+                            }
+                        }
                     };
 
                 // 从 active_tasks 中移除
@@ -492,7 +541,7 @@ impl ImageLoader {
                             let key = format!("{:?}_tile_{}_{}", path, col, row);
                             active.remove(&PathBuf::from(key));
                         }
-                        TaskType::GenerateThumbnail { .. } => {
+                        TaskType::GenerateThumbnail { .. } | TaskType::GenerateThumbnailFromCache { .. } => {
                             let key = format!("{:?}_thumb", path);
                             active.remove(&PathBuf::from(key));
                         }
@@ -762,6 +811,23 @@ impl ImageLoader {
 
         self.pending.push_back(task);
     }
+
+    /// 从缓存数据生成缩略图（避免重复解码）
+    fn handle_generate_thumbnail_from_cache(
+        &mut self,
+        path: PathBuf,
+        size: u32,
+        priority: LoadPriority,
+    ) {
+        // 添加到待处理队列
+        let task = PendingTask {
+            path: path.clone(),
+            priority,
+            task_type: TaskType::GenerateThumbnailFromCache { size },
+        };
+
+        self.pending.push_back(task);
+    }
 }
 
 /// 执行缩略图生成
@@ -803,6 +869,51 @@ fn execute_thumbnail_generation(
         width,
         height,
     }))
+}
+
+/// 从缓存数据生成缩略图（避免重复解码）
+fn execute_thumbnail_from_cache(
+    image_cache: &Option<Arc<Mutex<lru::LruCache<PathBuf, CacheEntry>>>>,
+    path: &PathBuf,
+    size: u32,
+) -> Result<Arc<DecodedImage>, Box<dyn std::error::Error + Send + Sync>> {
+    // 检查是否有缓存引用
+    let Some(cache_arc) = image_cache else {
+        return Err("No cache reference available".into());
+    };
+    
+    let mut cache_guard = cache_arc.lock().map_err(|e| format!("Lock error: {}", e))?;
+    if let Some(cached) = cache_guard.get(path) {
+        match cached {
+            CacheEntry::Decoded(image) => {
+                use image::imageops::thumbnail;
+                
+                // 从缓存数据快速缩放
+                if let Some(img) = image::RgbaImage::from_raw(
+                    image.width, 
+                    image.height, 
+                    image.data.clone()
+                ) {
+                    let thumb_img = thumbnail(&img, size, size);
+                    let width = thumb_img.width();
+                    let height = thumb_img.height();
+                    let data = thumb_img.into_raw();
+                    return Ok(Arc::new(DecodedImage {
+                        data,
+                        width,
+                        height,
+                    }));
+                }
+            }
+            CacheEntry::TiledMeta(tiled) => {
+                // 直接返回已有的缩略图
+                return Ok(tiled.thumbnail.clone());
+            }
+        }
+    }
+    
+    // 缓存未命中，返回错误让调用者使用普通方法
+    Err("Cache miss".into())
 }
 
 #[cfg(test)]
