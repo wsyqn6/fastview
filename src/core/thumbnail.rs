@@ -1,16 +1,14 @@
 use crate::core::loader::{LoadCommand, LoadPriority};
-use crate::utils::to_non_zero_usize;
+use crate::core::thumbnail_cache::ThumbnailCache;
 /// 缩略图导航栏模块
 use eframe::egui;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
 pub struct ThumbnailBar {
     pub visible: bool,
-    pub textures: lru::LruCache<PathBuf, egui::TextureHandle>,
-    pub pending: HashSet<PathBuf>,
-    pub failed: HashSet<PathBuf>,
+    /// 统一的缩略图缓存
+    pub cache: ThumbnailCache,
     pub last_interaction: Instant,
 }
 
@@ -24,9 +22,7 @@ impl ThumbnailBar {
     pub fn new() -> Self {
         Self {
             visible: false,
-            textures: lru::LruCache::new(to_non_zero_usize(30, 30)),
-            pending: HashSet::new(),
-            failed: HashSet::new(),
+            cache: ThumbnailCache::new(),
             last_interaction: Instant::now(),
         }
     }
@@ -57,29 +53,29 @@ impl ThumbnailBar {
     }
 
     pub fn should_generate(&self, path: &PathBuf) -> bool {
-        !self.textures.contains(path) && !self.pending.contains(path) && !self.failed.contains(path)
+        !self.cache.contains_texture(path)
+            && !self.cache.is_pending(path)
+            && !self.cache.is_failed(path)
     }
 
     pub fn mark_pending(&mut self, path: PathBuf) {
-        self.pending.insert(path);
+        self.cache.mark_pending(path);
     }
 
     pub fn mark_ready(&mut self, path: &PathBuf) {
-        self.pending.remove(path);
-        self.failed.remove(path);
+        self.cache.mark_ready(path);
     }
 
     pub fn mark_failed(&mut self, path: &PathBuf) {
-        self.pending.remove(path);
-        self.failed.insert(path.clone());
+        self.cache.mark_failed(path);
     }
 
     pub fn add_texture(&mut self, path: PathBuf, texture: egui::TextureHandle) {
-        self.textures.put(path, texture);
+        self.cache.add_texture(path, texture);
     }
 
     pub fn get_texture(&mut self, path: &PathBuf) -> Option<egui::TextureHandle> {
-        self.textures.get(path).cloned()
+        self.cache.get_texture(path)
     }
 
     pub fn request_generation(
@@ -93,10 +89,7 @@ impl ThumbnailBar {
         self.mark_pending(path.clone());
         if let Some(tx) = cmd_tx {
             // 使用新的命令类型，后台线程会自动检查缓存
-            debug_log!(
-                "[THUMB] 请求生成缩略图: {:?}",
-                path.file_name()
-            );
+            debug_log!("[THUMB] 请求生成缩略图: {:?}", path.file_name());
             let _ = tx.send(LoadCommand::GenerateThumbnailFromCache {
                 path: path.clone(),
                 size: 100,

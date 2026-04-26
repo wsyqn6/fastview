@@ -61,7 +61,6 @@ pub(crate) struct DirectoryCache {
 
 pub struct FastViewApp {
     pub texture: Option<egui::TextureHandle>,
-    pub nav_thumbnail: Option<(PathBuf, egui::TextureHandle)>, // 缓存导航缩略图（路径，纹理）
     pub zoom: f32,
     pub rotation: f32,
     pub zoom_mode: ZoomMode,
@@ -113,7 +112,6 @@ impl Default for FastViewApp {
 
         Self {
             texture: None,
-            nav_thumbnail: None,
             zoom: 1.0,
             rotation: 0.0,
             zoom_mode: ZoomMode::Fit,
@@ -199,7 +197,7 @@ impl FastViewApp {
     fn start_loader(&mut self) {
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         let (mut loader, cmd_tx) = ImageLoader::new(result_tx);
-        
+
         // 设置主缓存引用，让后台线程可以复用已解码数据
         loader.set_image_cache(self.image_cache.clone());
 
@@ -390,7 +388,6 @@ impl Drop for FastViewApp {
 
         // 清理纹理资源
         self.texture = None;
-        self.nav_thumbnail = None;
         self.tile_textures.clear();
 
         debug_log!("[APP] FastViewApp resources cleaned up");

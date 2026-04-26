@@ -198,76 +198,14 @@ pub fn get_or_create_nav_thumbnail(
     app: &mut FastViewApp,
     ui: &mut egui::Ui,
 ) -> Option<egui::TextureHandle> {
-    // 检查是否已有缓存的缩略图纹理
-    if let Some((cached_path, texture)) = &app.nav_thumbnail
-        && let Some(ref current_path) = app.current_path
-        && cached_path == current_path
-    {
-        return Some(texture.clone());
-    }
-
-    // 没有缓存或路径变化，从图片缓存中获取数据生成缩略图
     if let Some(ref path) = app.current_path {
-        // 尝试从缓存中获取图片数据
-        if let Some(cached) = {
-            let mut cache_guard = lock_or_recover(&app.image_cache);
-            cache_guard.get(path).cloned()
-        } {
-            match cached {
-                CacheEntry::Decoded(image) => {
-                    use image::imageops::resize;
-
-                    // 计算缩略图尺寸（保持宽高比，统一为100px）
-                    let max_thumb_size = 100;
-                    let scale =
-                        (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
-                    let thumb_w = (image.width as f32 * scale) as u32;
-                    let thumb_h = (image.height as f32 * scale) as u32;
-
-                    // 从原始像素数据创建 RgbaImage
-                    if let Some(img) =
-                        image::RgbaImage::from_raw(image.width, image.height, image.data.clone())
-                    {
-                        // 生成缩略图（使用 Nearest 快速算法，速度优先）
-                        let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
-
-                        // 创建纹理
-                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                            [thumb_w as usize, thumb_h as usize],
-                            thumb_img.as_raw(),
-                        );
-                        let texture = ui.ctx().load_texture(
-                            "nav_thumbnail",
-                            color_image,
-                            egui::TextureOptions::LINEAR,
-                        );
-
-                        // 缓存纹理
-                        app.nav_thumbnail = Some((path.clone(), texture.clone()));
-                        return Some(texture);
-                    }
-                }
-                CacheEntry::TiledMeta(tiled) => {
-                    // 对于分块图片，直接使用缩略图
-                    let thumb_image = &tiled.thumbnail;
-                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                        [thumb_image.width as usize, thumb_image.height as usize],
-                        &thumb_image.data,
-                    );
-                    let texture = ui.ctx().load_texture(
-                        "nav_thumbnail",
-                        color_image,
-                        egui::TextureOptions::LINEAR,
-                    );
-
-                    // 缓存纹理
-                    app.nav_thumbnail = Some((path.clone(), texture.clone()));
-                    return Some(texture);
-                }
-            }
-        }
+        // 使用统一的缩略图缓存
+        app.thumbnail_mgr
+            .cache_mut()
+            .get_or_create(path, ui.ctx(), &app.image_cache, &app.cmd_tx)
+    } else {
+        None
     }
-    None
 }
 
 /// 尝试从缓存快速生成缩略图（供后台线程调用前的预检查）
@@ -281,13 +219,11 @@ pub fn try_generate_thumbnail_from_cache(
         match cached {
             CacheEntry::Decoded(image) => {
                 use image::imageops::resize;
-                
+
                 // 从缓存数据快速缩放（保持宽高比）
-                if let Some(img) = image::RgbaImage::from_raw(
-                    image.width, 
-                    image.height, 
-                    image.data.clone()
-                ) {
+                if let Some(img) =
+                    image::RgbaImage::from_raw(image.width, image.height, image.data.clone())
+                {
                     // 计算保持宽高比的缩略图尺寸
                     let aspect = img.width() as f32 / img.height() as f32;
                     let (thumb_w, thumb_h) = if aspect > 1.0 {
@@ -295,8 +231,9 @@ pub fn try_generate_thumbnail_from_cache(
                     } else {
                         ((size as f32 * aspect) as u32, size)
                     };
-                    
-                    let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
+
+                    let thumb_img =
+                        resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
                     let width = thumb_img.width();
                     let height = thumb_img.height();
                     let data = thumb_img.into_raw();

@@ -74,7 +74,7 @@ impl ThumbnailManager {
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "[THUMB] Added to cache, total textures: {}",
-                    self.bar.textures.len()
+                    self.bar.cache.len()
                 );
             }
             LoadResult::ThumbnailFailed { path, error } => {
@@ -141,5 +141,10 @@ impl ThumbnailManager {
     /// 检查是否可见
     pub fn is_visible(&self) -> bool {
         self.bar.visible
+    }
+
+    /// 获取缩略图缓存的可变引用（供 nav_thumbnail 使用）
+    pub fn cache_mut(&mut self) -> &mut crate::core::thumbnail_cache::ThumbnailCache {
+        &mut self.bar.cache
     }
 }

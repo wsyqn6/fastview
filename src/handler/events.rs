@@ -120,6 +120,7 @@ pub fn handle_load_results(app: &mut FastViewApp, ui: &mut egui::Ui) -> (bool, O
 }
 
 /// 处理图片加载完成
+#[allow(unused_variables)]
 fn handle_image_ready(
     app: &mut FastViewApp,
     ui: &mut egui::Ui,
@@ -232,14 +233,14 @@ fn handle_directory_scanned(
                 );
                 app.current_images = images;
                 app.current_index = pos;
-                
+
                 // 目录扫描完成后，触发预加载（此时 current_images 已有数据）
                 *needs_prefetch = true;
                 debug_log!(
                     "[{:.3}s] [EVENTS] 设置 needs_prefetch=true (目录扫描完成)",
                     elapsed_ms() as f64 / 1000.0
                 );
-                
+
                 // 注意：不需要手动请求缩略图，render() 会自动请求可见范围内的缩略图
             } else {
                 debug_log!(
@@ -259,6 +260,7 @@ fn handle_directory_scanned(
 }
 
 /// 处理分块图片元数据就绪
+#[allow(unused_variables)]
 fn handle_tiled_meta_ready(
     app: &mut FastViewApp,
     ui: &mut egui::Ui,

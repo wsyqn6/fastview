@@ -135,7 +135,7 @@ pub struct ImageLoader {
     max_memory: usize,
     #[allow(dead_code)]
     current_memory: usize,
-    
+
     // 引用主缓存，用于缩略图生成时复用已解码数据
     image_cache: Option<Arc<Mutex<lru::LruCache<PathBuf, CacheEntry>>>>,
 }
@@ -188,7 +188,7 @@ impl ImageLoader {
         };
         (loader, cmd_tx)
     }
-    
+
     /// 设置主缓存引用（用于缩略图生成时复用数据）
     pub fn set_image_cache(&mut self, cache: Arc<Mutex<lru::LruCache<PathBuf, CacheEntry>>>) {
         self.image_cache = Some(cache);
@@ -455,7 +455,8 @@ impl ImageLoader {
                         let key = format!("{:?}_tile_{}_{}", path, col, row);
                         active.insert(PathBuf::from(key));
                     }
-                    TaskType::GenerateThumbnail { .. } | TaskType::GenerateThumbnailFromCache { .. } => {
+                    TaskType::GenerateThumbnail { .. }
+                    | TaskType::GenerateThumbnailFromCache { .. } => {
                         let key = format!("{:?}_thumb", path);
                         active.insert(PathBuf::from(key));
                     }
@@ -540,7 +541,8 @@ impl ImageLoader {
                             let key = format!("{:?}_tile_{}_{}", path, col, row);
                             active.remove(&PathBuf::from(key));
                         }
-                        TaskType::GenerateThumbnail { .. } | TaskType::GenerateThumbnailFromCache { .. } => {
+                        TaskType::GenerateThumbnail { .. }
+                        | TaskType::GenerateThumbnailFromCache { .. } => {
                             let key = format!("{:?}_thumb", path);
                             active.remove(&PathBuf::from(key));
                         }
@@ -892,19 +894,17 @@ fn execute_thumbnail_from_cache(
     let Some(cache_arc) = image_cache else {
         return Err("No cache reference available".into());
     };
-    
+
     let mut cache_guard = cache_arc.lock().map_err(|e| format!("Lock error: {}", e))?;
     if let Some(cached) = cache_guard.get(path) {
         match cached {
             CacheEntry::Decoded(image) => {
                 use image::imageops::resize;
-                
+
                 // 从缓存数据快速缩放（保持宽高比）
-                if let Some(img) = image::RgbaImage::from_raw(
-                    image.width, 
-                    image.height, 
-                    image.data.clone()
-                ) {
+                if let Some(img) =
+                    image::RgbaImage::from_raw(image.width, image.height, image.data.clone())
+                {
                     // 计算保持宽高比的缩略图尺寸
                     let aspect = img.width() as f32 / img.height() as f32;
                     let (thumb_w, thumb_h) = if aspect > 1.0 {
@@ -912,8 +912,9 @@ fn execute_thumbnail_from_cache(
                     } else {
                         ((size as f32 * aspect) as u32, size)
                     };
-                    
-                    let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
+
+                    let thumb_img =
+                        resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
                     let width = thumb_img.width();
                     let height = thumb_img.height();
                     let data = thumb_img.into_raw();
@@ -930,7 +931,7 @@ fn execute_thumbnail_from_cache(
             }
         }
     }
-    
+
     // 缓存未命中，返回错误让调用者使用普通方法
     Err("Cache miss".into())
 }
