@@ -1,6 +1,6 @@
 [package]
 name = "fastview"
-version = "0.2.8"
+version = "0.3.0"
 description = "A fast, lightweight, and modern image viewer built with Rust"
 authors = ["FastView Team"]
 license = "MIT"

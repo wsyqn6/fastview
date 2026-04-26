@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-26
+
+### Added
+- Image resource reuse optimization to eliminate duplicate decoding
+- GenerateThumbnailFromCache command for cache-based thumbnail generation
+- Graceful fallback mechanism when thumbnail cache miss occurs
+
+### Changed
+- Optimized thumbnail loading to visible range only (significant performance improvement)
+- Standardized thumbnail sizes to 100px for navigation and bottom bar
+- Increased prefetch priority to improve cache hit rate
+- Removed preload restriction for better cache performance
+- Optimized GitHub Actions CI workflow configuration
+
+### Fixed
+- Resolved clippy manual_div_ceil warning in example code
+- Implemented graceful error handling for thumbnail cache operations
+
+## [0.2.8] - 2026-04-25
+
 ### Added
 - Drag and drop support for opening images
 - Automatic EXIF orientation correction
