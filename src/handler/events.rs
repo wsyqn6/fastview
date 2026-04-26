@@ -61,7 +61,7 @@ pub fn handle_load_results(app: &mut FastViewApp, ui: &mut egui::Ui) -> (bool, O
                     path_for_dir_update = Some(path);
                 }
                 LoadResult::DirectoryScanned { images } => {
-                    handle_directory_scanned(app, ui, images);
+                    handle_directory_scanned(app, ui, images, &mut needs_prefetch);
                 }
                 LoadResult::TiledImageMetaReady { path, tiled_image } => {
                     handle_tiled_meta_ready(
@@ -181,8 +181,8 @@ fn handle_image_ready(
             cache_guard.put(path.clone(), CacheEntry::Decoded(image));
         }
 
-        // 触发预加载（在借用结束后）
-        *needs_prefetch = true;
+        // 注意：不在这里触发预加载，等待目录扫描完成后再触发
+        // 这样可以确保 current_images 已经有数据
 
         ui.ctx().request_repaint();
     } else {
@@ -204,7 +204,12 @@ fn handle_image_ready(
 }
 
 /// 处理目录扫描完成
-fn handle_directory_scanned(app: &mut FastViewApp, ui: &mut egui::Ui, images: Vec<PathBuf>) {
+fn handle_directory_scanned(
+    app: &mut FastViewApp,
+    ui: &mut egui::Ui,
+    images: Vec<PathBuf>,
+    needs_prefetch: &mut bool,
+) {
     debug_log!(
         "[{:.3}s] [APP] 目录扫描完成: {} 张图片",
         elapsed_ms() as f64 / 1000.0,
@@ -227,6 +232,15 @@ fn handle_directory_scanned(app: &mut FastViewApp, ui: &mut egui::Ui, images: Ve
                 );
                 app.current_images = images;
                 app.current_index = pos;
+                
+                // 目录扫描完成后，触发预加载（此时 current_images 已有数据）
+                *needs_prefetch = true;
+                debug_log!(
+                    "[{:.3}s] [EVENTS] 设置 needs_prefetch=true (目录扫描完成)",
+                    elapsed_ms() as f64 / 1000.0
+                );
+                
+                // 注意：不需要手动请求缩略图，render() 会自动请求可见范围内的缩略图
             } else {
                 debug_log!(
                     "[{:.3}s] [APP] 警告：当前图片不在扫描结果中",
@@ -275,7 +289,7 @@ fn handle_tiled_meta_ready(
         // 应用缓存条目（会创建缩略图纹理并请求加载可见块）
         app.apply_cached_entry(CacheEntry::TiledMeta(tiled_image), &path, ui.ctx());
 
-        *needs_prefetch = true;
+        // 注意：不在这里触发预加载，等待目录扫描完成后再触发
 
         ui.ctx().request_repaint();
     }

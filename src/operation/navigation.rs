@@ -46,14 +46,7 @@ pub fn prev_image(app: &mut FastViewApp, ctx: &egui::Context) {
     // 预加载相邻图片到缓存
     preload_adjacent_images(app);
 
-    // 请求生成周围的缩略图
-    let cmd_tx = app.cmd_tx.clone();
-    app.thumbnail_mgr.request_surrounding_thumbnails(
-        &app.current_images,
-        app.current_index,
-        &cmd_tx,
-        5, // 前后各5张
-    );
+    // 注意：不需要手动请求缩略图，render() 会自动请求可见范围内的缩略图
 }
 
 /// 切换到下一张图片
@@ -96,14 +89,7 @@ pub fn next_image(app: &mut FastViewApp, ctx: &egui::Context) {
     // 预加载相邻图片到缓存
     preload_adjacent_images(app);
 
-    // 请求生成周围的缩略图
-    let cmd_tx = app.cmd_tx.clone();
-    app.thumbnail_mgr.request_surrounding_thumbnails(
-        &app.current_images,
-        app.current_index,
-        &cmd_tx,
-        5, // 前后各5张
-    );
+    // 注意：不需要手动请求缩略图，render() 会自动请求可见范围内的缩略图
 }
 
 /// 更新目录列表（异步扫描，仅首次加载时执行）
@@ -161,7 +147,15 @@ pub fn update_directory_list(app: &mut FastViewApp, path: &PathBuf) {
 
 /// 预加载相邻图片（智能方向性预加载）
 pub fn preload_adjacent_images(app: &mut FastViewApp) {
+    debug_log!(
+        "[{:.3}s] [NAV] preload_adjacent_images 被调用，当前索引={}, 总数={}",
+        elapsed_ms() as f64 / 1000.0,
+        app.current_index,
+        app.current_images.len()
+    );
+
     if app.current_images.is_empty() || app.current_index >= app.current_images.len() {
+        debug_log!("[NAV] 早期返回：current_images 为空或索引越界");
         return;
     }
 
@@ -180,12 +174,6 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
         let path = &app.current_images[next_idx];
         if !cache_guard.contains(path) {
             to_prefetch.push(path.clone());
-        } else {
-            debug_log!(
-                "[{:.3}s] [NAV] 跳过预加载（已缓存）: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name()
-            );
         }
     }
 
@@ -194,12 +182,6 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
         let path = &app.current_images[next2_idx];
         if !cache_guard.contains(path) {
             to_prefetch.push(path.clone());
-        } else {
-            debug_log!(
-                "[{:.3}s] [NAV] 跳过预加载（已缓存）: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name()
-            );
         }
     }
 
@@ -208,12 +190,6 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
         let path = &app.current_images[next3_idx];
         if !cache_guard.contains(path) {
             to_prefetch.push(path.clone());
-        } else {
-            debug_log!(
-                "[{:.3}s] [NAV] 跳过预加载（已缓存）: {:?}",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name()
-            );
         }
     }
 

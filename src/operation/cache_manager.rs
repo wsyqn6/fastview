@@ -215,7 +215,7 @@ pub fn get_or_create_nav_thumbnail(
         } {
             match cached {
                 CacheEntry::Decoded(image) => {
-                    use image::imageops::thumbnail;
+                    use image::imageops::resize;
 
                     // 计算缩略图尺寸（保持宽高比，统一为100px）
                     let max_thumb_size = 100;
@@ -228,8 +228,8 @@ pub fn get_or_create_nav_thumbnail(
                     if let Some(img) =
                         image::RgbaImage::from_raw(image.width, image.height, image.data.clone())
                     {
-                        // 生成缩略图（非常快，因为只是缩放操作）
-                        let thumb_img = thumbnail(&img, thumb_w, thumb_h);
+                        // 生成缩略图（使用 Nearest 快速算法，速度优先）
+                        let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
 
                         // 创建纹理
                         let color_image = egui::ColorImage::from_rgba_unmultiplied(
@@ -280,15 +280,23 @@ pub fn try_generate_thumbnail_from_cache(
     if let Some(cached) = cache_guard.get(path) {
         match cached {
             CacheEntry::Decoded(image) => {
-                use image::imageops::thumbnail;
+                use image::imageops::resize;
                 
-                // 从缓存数据快速缩放
+                // 从缓存数据快速缩放（保持宽高比）
                 if let Some(img) = image::RgbaImage::from_raw(
                     image.width, 
                     image.height, 
                     image.data.clone()
                 ) {
-                    let thumb_img = thumbnail(&img, size, size);
+                    // 计算保持宽高比的缩略图尺寸
+                    let aspect = img.width() as f32 / img.height() as f32;
+                    let (thumb_w, thumb_h) = if aspect > 1.0 {
+                        (size, (size as f32 / aspect) as u32)
+                    } else {
+                        ((size as f32 * aspect) as u32, size)
+                    };
+                    
+                    let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
                     let width = thumb_img.width();
                     let height = thumb_img.height();
                     let data = thumb_img.into_raw();

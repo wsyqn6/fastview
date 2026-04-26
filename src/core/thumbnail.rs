@@ -93,6 +93,10 @@ impl ThumbnailBar {
         self.mark_pending(path.clone());
         if let Some(tx) = cmd_tx {
             // 使用新的命令类型，后台线程会自动检查缓存
+            debug_log!(
+                "[THUMB] 请求生成缩略图: {:?}",
+                path.file_name()
+            );
             let _ = tx.send(LoadCommand::GenerateThumbnailFromCache {
                 path: path.clone(),
                 size: 100,

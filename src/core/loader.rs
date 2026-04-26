@@ -462,13 +462,16 @@ impl ImageLoader {
                 }
             }
 
-            debug_log!(
-                "[{:.3}s] [LOADER] 开始处理: {:?} (type={:?}, priority={:?})",
-                elapsed_ms() as f64 / 1000.0,
-                path.file_name(),
-                task_type,
-                priority
-            );
+            // 仅对高优先级任务打印详细日志
+            if priority >= LoadPriority::High {
+                debug_log!(
+                    "[{:.3}s] [LOADER] 开始处理: {:?} (type={:?}, priority={:?})",
+                    elapsed_ms() as f64 / 1000.0,
+                    path.file_name(),
+                    task_type,
+                    priority
+                );
+            }
 
             pool.spawn(move || {
                 let start = Instant::now();
@@ -515,10 +518,6 @@ impl ImageLoader {
                                 }),
                                 Err(_) => {
                                     // 缓存未命中，降级为从文件加载
-                                    debug_log!(
-                                        "[LOADER] 缩略图缓存未命中，从文件加载: {:?}",
-                                        path.file_name()
-                                    );
                                     execute_thumbnail_generation(&path, *size).map(|image| {
                                         LoadResult::ThumbnailReady {
                                             path: path.clone(),
@@ -855,8 +854,20 @@ fn execute_thumbnail_generation(
     // 应用 EXIF 方向信息 (自动旋转，原地修改)
     img.apply_orientation(orientation);
 
-    // 使用 thumbnail() - 专为缩略图优化的整数算法（比 resize 快）
-    let thumbnail = img.thumbnail(size, size);
+    // 计算保持宽高比的缩略图尺寸
+    let (thumb_w, thumb_h) = {
+        let aspect = img.width() as f32 / img.height() as f32;
+        if aspect > 1.0 {
+            // 横屏：宽度为 size，高度按比例
+            (size, (size as f32 / aspect) as u32)
+        } else {
+            // 竖屏或正方形：高度为 size，宽度按比例
+            ((size as f32 * aspect) as u32, size)
+        }
+    };
+
+    // 使用 resize 保持宽高比（FilterType::Nearest 速度最快，适合缩略图）
+    let thumbnail = img.resize(thumb_w, thumb_h, image::imageops::FilterType::Nearest);
 
     // 转换为 RGBA
     let rgba = thumbnail.into_rgba8();
@@ -886,15 +897,23 @@ fn execute_thumbnail_from_cache(
     if let Some(cached) = cache_guard.get(path) {
         match cached {
             CacheEntry::Decoded(image) => {
-                use image::imageops::thumbnail;
+                use image::imageops::resize;
                 
-                // 从缓存数据快速缩放
+                // 从缓存数据快速缩放（保持宽高比）
                 if let Some(img) = image::RgbaImage::from_raw(
                     image.width, 
                     image.height, 
                     image.data.clone()
                 ) {
-                    let thumb_img = thumbnail(&img, size, size);
+                    // 计算保持宽高比的缩略图尺寸
+                    let aspect = img.width() as f32 / img.height() as f32;
+                    let (thumb_w, thumb_h) = if aspect > 1.0 {
+                        (size, (size as f32 / aspect) as u32)
+                    } else {
+                        ((size as f32 * aspect) as u32, size)
+                    };
+                    
+                    let thumb_img = resize(&img, thumb_w, thumb_h, image::imageops::FilterType::Nearest);
                     let width = thumb_img.width();
                     let height = thumb_img.height();
                     let data = thumb_img.into_raw();

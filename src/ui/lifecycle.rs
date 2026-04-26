@@ -41,6 +41,10 @@ pub fn handle_post_load_operations(
 
     // 预加载相邻图片（在借用结束后）
     if needs_prefetch {
+        debug_log!(
+            "[{:.3}s] [LIFECYCLE] 触发预加载",
+            crate::app::elapsed_ms() as f64 / 1000.0
+        );
         app.preload_adjacent_images();
     }
 }
