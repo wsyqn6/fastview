@@ -1,0 +1,8 @@
+[build]
+jobs = 10
+
+# Release 模式启用 Haswell 级别优化（SIMD）
+# 兼容性：支持 2013 年后的所有 x86_64 CPU（Haswell 及更新架构）
+# 性能提升：JPEG/PNG 解码约 10-15%
+[target.'cfg(not(debug_assertions))']
+rustflags = ["-C", "target-cpu=haswell"]

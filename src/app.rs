@@ -127,7 +127,7 @@ impl Default for FastViewApp {
             is_borderless: false,
             current_scale: 1.0,
             image_cache: Arc::new(std::sync::Mutex::new(LruCache::new(to_non_zero_usize(
-                5, 10,
+                2, 10,
             )))),
             settings: Settings::default(),
             show_settings: false,

@@ -161,33 +161,15 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
 
     let mut to_prefetch = Vec::new();
 
-    // 策略：优先预加载下一张，其次是上两张，避免加载已看过的
+    // 策略：只预加载下一张（对标 Honeyview，降低内存占用）
     let next_idx = app.current_index + 1;
-    let next2_idx = app.current_index + 2;
-    let next3_idx = app.current_index + 3;
 
     // 检查缓存，只预加载未缓存的图片
     let cache_guard = lock_or_recover(&app.image_cache);
 
-    // 1. 预加载下一张（最高优先级）
+    // 预加载下一张（唯一一张）
     if next_idx < app.current_images.len() {
         let path = &app.current_images[next_idx];
-        if !cache_guard.contains(path) {
-            to_prefetch.push(path.clone());
-        }
-    }
-
-    // 2. 预加载下两张（次高优先级）
-    if next2_idx < app.current_images.len() {
-        let path = &app.current_images[next2_idx];
-        if !cache_guard.contains(path) {
-            to_prefetch.push(path.clone());
-        }
-    }
-
-    // 3. 预加载下三张（可选）
-    if next3_idx < app.current_images.len() {
-        let path = &app.current_images[next3_idx];
         if !cache_guard.contains(path) {
             to_prefetch.push(path.clone());
         }

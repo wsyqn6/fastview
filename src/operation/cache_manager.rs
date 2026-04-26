@@ -77,14 +77,14 @@ pub fn apply_cached_entry(
 
     match entry {
         CacheEntry::Decoded(image) => {
-            // 从解码数据创建纹理（使用唯一ID避免冲突）
+            // 从解码数据创建纹理（使用固定ID，egui会自动覆盖旧纹理）
             let image_size = egui::vec2(image.width as f32, image.height as f32);
-            let texture_id = format!("image_{:?}", path.file_name());
+            let texture_id = "current_image"; // 固定ID，避免纹理累积
             let color_image = egui::ColorImage::from_rgba_unmultiplied(
                 [image.width as usize, image.height as usize],
                 &image.data,
             );
-            let texture = ctx.load_texture(&texture_id, color_image, egui::TextureOptions::LINEAR);
+            let texture = ctx.load_texture(texture_id, color_image, egui::TextureOptions::LINEAR);
 
             debug_log!(
                 "[{:.3}s] [CACHE] 缓存纹理创建完成: {}",
@@ -113,8 +113,8 @@ pub fn apply_cached_entry(
             // 处理分块图片
             let image_size = egui::vec2(tiled.width as f32, tiled.height as f32);
 
-            // 创建缩略图文理作为背景
-            let thumb_texture_id = format!("thumb_{:?}", path.file_name());
+            // 创建缩略图文理作为背景（使用固定ID）
+            let thumb_texture_id = "current_thumb";
             let thumb_color_image = egui::ColorImage::from_rgba_unmultiplied(
                 [
                     tiled.thumbnail.width as usize,
@@ -123,7 +123,7 @@ pub fn apply_cached_entry(
                 &tiled.thumbnail.data,
             );
             let thumb_texture = ctx.load_texture(
-                &thumb_texture_id,
+                thumb_texture_id,
                 thumb_color_image,
                 egui::TextureOptions::LINEAR,
             );
