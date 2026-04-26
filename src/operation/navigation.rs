@@ -230,7 +230,7 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
         if let Some(ref tx) = app.cmd_tx {
             let _ = tx.send(LoadCommand::Prefetch {
                 paths: to_prefetch,
-                priority: LoadPriority::Low,
+                priority: LoadPriority::High, // 提高优先级，确保在缩略图生成前完成
             });
         }
     } else {
