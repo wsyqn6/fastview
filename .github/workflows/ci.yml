@@ -8,13 +8,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_VERSION: stable
 
 jobs:
   # 代码质量检查
   check:
     name: Check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       
@@ -25,12 +26,14 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-check-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Check formatting
         run: cargo fmt --check
       
       - name: Run Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
       
       - name: Check build
         run: cargo check --all-targets
@@ -39,9 +42,9 @@ jobs:
   test:
     name: Test
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
@@ -53,6 +56,8 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Run tests
         run: cargo test --verbose
@@ -61,7 +66,7 @@ jobs:
   build-linux:
     name: Build Linux
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +81,8 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Build release
         run: cargo build --release
@@ -85,13 +92,13 @@ jobs:
         with:
           name: fastview-linux
           path: target/release/fastview
-          retention-days: 30
+          retention-days: 7
 
   # Windows 构建
   build-windows:
     name: Build Windows
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     
     steps:
       - uses: actions/checkout@v4
@@ -101,6 +108,8 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Build release
         run: cargo build --release
@@ -110,13 +119,13 @@ jobs:
         with:
           name: fastview-windows
           path: target/release/fastview.exe
-          retention-days: 30
+          retention-days: 7
 
   # macOS 构建
   build-macos:
     name: Build macOS
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     
     steps:
       - uses: actions/checkout@v4
@@ -126,6 +135,8 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Build release
         run: cargo build --release
@@ -135,4 +146,4 @@ jobs:
         with:
           name: fastview-macos
           path: target/release/fastview
-          retention-days: 30
+          retention-days: 7
