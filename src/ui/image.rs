@@ -163,8 +163,8 @@ fn render_thumbnail_navigator(
 ) {
     let img_ratio = app.image_size.x / app.image_size.y;
 
-    // 缩略图尺寸：保持宽高比，最大边120px
-    let max_thumb_size = 120.0;
+    // 缩略图尺寸：保持宽高比，统一为100px（与底部缩略图一致）
+    let max_thumb_size = 100.0;
     let (thumb_w, thumb_h) = if img_ratio > 1.0 {
         (max_thumb_size, max_thumb_size / img_ratio)
     } else {

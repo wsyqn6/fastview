@@ -217,8 +217,8 @@ pub fn get_or_create_nav_thumbnail(
                 CacheEntry::Decoded(image) => {
                     use image::imageops::thumbnail;
 
-                    // 计算缩略图尺寸（保持宽高比）
-                    let max_thumb_size = 120;
+                    // 计算缩略图尺寸（保持宽高比，统一为100px）
+                    let max_thumb_size = 100;
                     let scale =
                         (max_thumb_size as f32 / image.width.max(image.height) as f32).min(1.0);
                     let thumb_w = (image.width as f32 * scale) as u32;

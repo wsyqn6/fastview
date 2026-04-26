@@ -43,6 +43,9 @@ pub fn prev_image(app: &mut FastViewApp, ctx: &egui::Context) {
     // 调用缓存管理器加载图片
     crate::operation::cache_manager::load_image(app, &path, ctx).ok();
 
+    // 预加载相邻图片到缓存
+    preload_adjacent_images(app);
+
     // 请求生成周围的缩略图
     let cmd_tx = app.cmd_tx.clone();
     app.thumbnail_mgr.request_surrounding_thumbnails(
@@ -89,6 +92,9 @@ pub fn next_image(app: &mut FastViewApp, ctx: &egui::Context) {
 
     // 调用缓存管理器加载图片
     crate::operation::cache_manager::load_image(app, &path, ctx).ok();
+
+    // 预加载相邻图片到缓存
+    preload_adjacent_images(app);
 
     // 请求生成周围的缩略图
     let cmd_tx = app.cmd_tx.clone();
