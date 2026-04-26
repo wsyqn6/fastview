@@ -165,11 +165,11 @@ impl ThumbnailCache {
 
                 self.textures.put(path.clone(), texture);
             }
-            LoadResult::ThumbnailFailed { path, error } => {
+            LoadResult::ThumbnailFailed { path, error: _ } => {
                 self.pending.remove(path);
                 self.failed.insert(path.clone());
 
-                log_error!("缩略图生成失败 {:?}: {}", path.file_name(), error);
+                log_error!("缩略图生成失败 {:?}", path.file_name());
             }
             _ => {}
         }

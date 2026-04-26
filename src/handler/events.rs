@@ -97,10 +97,10 @@ pub fn handle_load_results(app: &mut FastViewApp, ui: &mut egui::Ui) -> (bool, O
                     };
                     app.thumbnail_mgr.process_result(&result_ref, ui.ctx());
                 }
-                LoadResult::ThumbnailFailed { path, error } => {
+                LoadResult::ThumbnailFailed { path, error: _ } => {
                     let result_ref = LoadResult::ThumbnailFailed {
                         path: path.clone(),
-                        error: error.clone(),
+                        error: String::new(), // 错误信息未使用
                     };
                     app.thumbnail_mgr.process_result(&result_ref, ui.ctx());
                 }

@@ -77,9 +77,9 @@ impl ThumbnailManager {
                     self.bar.cache.len()
                 );
             }
-            LoadResult::ThumbnailFailed { path, error } => {
+            LoadResult::ThumbnailFailed { path, error: _ } => {
                 #[cfg(debug_assertions)]
-                eprintln!("[THUMB] Failed: {:?} - {}", path.file_name(), error);
+                eprintln!("[THUMB] Failed: {:?}", path.file_name());
                 self.bar.mark_failed(path);
             }
             _ => {} // 其他结果类型不处理
