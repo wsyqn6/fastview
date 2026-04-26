@@ -57,6 +57,7 @@ pub enum TextKey {
     ExitFullscreen,
     ShowHideShortcuts,
     ClickToOpen,
+    ToggleThumbnails,
 
     // Settings
     General,
@@ -67,6 +68,7 @@ pub enum TextKey {
     ResetSettings,
     Chinese,
     English,
+    Close,
 }
 
 impl TextKey {
@@ -103,7 +105,7 @@ impl TextKey {
             TextKey::Version => "版本",
             TextKey::GitHub => "GitHub",
             TextKey::OK => "确定",
-            TextKey::AppDescription => "一个轻量级图片查看器",
+            TextKey::AppDescription => "⚡ 极速启动 · 💾 轻量小巧 · 🎯 专注看图",
             TextKey::Navigation => "导航",
             TextKey::ZoomAndView => "缩放与视图",
             TextKey::Rotation => "旋转",
@@ -119,6 +121,7 @@ impl TextKey {
             TextKey::ExitFullscreen => "退出全屏",
             TextKey::ShowHideShortcuts => "显示/隐藏快捷键",
             TextKey::ClickToOpen => "点击打开\n或拖拽图片",
+            TextKey::ToggleThumbnails => "显示/隐藏缩略图",
             TextKey::General => "通用",
             TextKey::Language => "语言",
             TextKey::Cache => "缓存",
@@ -127,6 +130,7 @@ impl TextKey {
             TextKey::ResetSettings => "重置设置",
             TextKey::Chinese => "中文",
             TextKey::English => "英文",
+            TextKey::Close => "关闭",
         }
     }
 
@@ -155,7 +159,7 @@ impl TextKey {
             TextKey::Version => "Version",
             TextKey::GitHub => "GitHub",
             TextKey::OK => "OK",
-            TextKey::AppDescription => "A lightweight image viewer",
+            TextKey::AppDescription => "⚡ Instant Start · 💾 Tiny Size · 🎯 Pure Viewing",
             TextKey::Navigation => "Navigation",
             TextKey::ZoomAndView => "Zoom & View",
             TextKey::Rotation => "Rotation",
@@ -171,6 +175,7 @@ impl TextKey {
             TextKey::ExitFullscreen => "Exit Fullscreen",
             TextKey::ShowHideShortcuts => "Show/Hide Shortcuts",
             TextKey::ClickToOpen => "Click to open\nor drag & drop images",
+            TextKey::ToggleThumbnails => "Show/Hide Thumbnails",
             TextKey::General => "General",
             TextKey::Language => "Language",
             TextKey::Cache => "Cache",
@@ -179,6 +184,7 @@ impl TextKey {
             TextKey::ResetSettings => "Reset Settings",
             TextKey::Chinese => "Chinese",
             TextKey::English => "English",
+            TextKey::Close => "Close",
         }
     }
 }

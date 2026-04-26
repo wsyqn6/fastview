@@ -179,6 +179,14 @@ impl FastViewApp {
         // Phase 4: 创建应用实例
         let mut app = Self::default();
         app.settings = settings;
+
+        // 应用无边框模式设置
+        if app.settings.borderless_mode {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+            app.is_borderless = true;
+        }
+
         app.start_loader();
 
         // Phase 5: 字体线程 detach (在后台完成后自动应用)
@@ -220,8 +228,8 @@ impl FastViewApp {
             }
         }
 
-        // 更新 LRU 缓存大小
-        let new_capacity = self.settings.max_cache_size;
+        // 更新 LRU 缓存大小（固定为10）
+        let new_capacity = 10;
         if let Ok(mut cache) = self.image_cache.lock() {
             use crate::utils::to_non_zero_usize;
             // LRU 不支持动态调整大小，需要重建

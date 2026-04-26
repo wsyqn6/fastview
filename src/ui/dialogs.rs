@@ -23,29 +23,29 @@ fn render_settings_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
     let language_text = TextKey::Language.text(lang);
     let chinese_text = TextKey::Chinese.text(lang);
     let english_text = TextKey::English.text(lang);
-    let cache_text = TextKey::Cache.text(lang);
-    let max_cache_text = TextKey::MaxCacheSize.text(lang);
     let show_status_text = TextKey::ShowStatusBar.text(lang);
+    let borderless_text = TextKey::ToggleBorderless.text(lang);
     let reset_text = TextKey::ResetSettings.text(lang);
 
     // Need to capture these outside the closure
     let current_lang = app.settings.language;
-    let current_max_cache = app.settings.max_cache_size;
     let current_show_status = app.settings.show_status_bar;
+    let current_borderless = app.settings.borderless_mode;
 
-    // Settings window - 卡片式设计，无标题栏
+    // Settings window - 卡片式设计
     egui::Window::new(settings_text)
         .open(&mut app.show_settings)
-        .title_bar(false) // 移除标题栏
+        .title_bar(true) // 启用标题栏，显示X按钮
         .resizable(false)
         .collapsible(false)
-        .fixed_size([320.0, 240.0])
+        .fixed_size([320.0, 260.0])
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]) // 居中显示
         .frame(egui::Frame::window(&ui.ctx().global_style())) // 使用窗口样式
         .show(ui.ctx(), |ui: &mut egui::Ui| {
             let mut temp_lang = current_lang;
-            let mut temp_max_cache = current_max_cache;
             let mut temp_show_status = current_show_status;
+            let mut temp_borderless = current_borderless;
+            let mut should_reset = false;
 
             ui.heading(general_text);
             ui.label(language_text);
@@ -59,26 +59,34 @@ fn render_settings_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
             }
 
             ui.separator();
-            ui.heading(cache_text);
-            let slider = egui::Slider::new(&mut temp_max_cache, 3..=30).text(max_cache_text);
-            ui.add(slider);
-
-            if temp_max_cache != current_max_cache {
-                app.settings.max_cache_size = temp_max_cache;
-            }
-
-            ui.separator();
             ui.checkbox(&mut temp_show_status, show_status_text);
 
             if temp_show_status != current_show_status {
                 app.settings.show_status_bar = temp_show_status;
             }
 
+            ui.add_space(4.0);
+            ui.checkbox(&mut temp_borderless, borderless_text);
+
+            if temp_borderless != current_borderless {
+                app.settings.borderless_mode = temp_borderless;
+            }
+
             ui.separator();
             if ui.button(reset_text).clicked() {
+                should_reset = true;
+            }
+
+            // 在闭包外处理状态变更，避免借用冲突
+            if should_reset {
                 app.settings = Settings::default();
             }
         });
+
+    // 在窗口渲染后应用边框变化
+    if app.settings.borderless_mode != current_borderless {
+        app.toggle_borderless(ui.ctx());
+    }
 
     // Auto save on changes
     app.save_settings();
@@ -176,6 +184,7 @@ fn render_shortcuts_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                     section_title(ui, navigation_text);
                     shortcut_row(ui, &["←", "→"], TextKey::PreviousNext.text(lang));
                     shortcut_row(ui, &["Space"], TextKey::DragMode.text(lang));
+                    shortcut_row(ui, &["T"], TextKey::ToggleThumbnails.text(lang));
 
                     ui.add_space(8.0);
                     section_title(ui, zoom_view_text);
@@ -219,12 +228,12 @@ fn render_about_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
     let description = app.t(TextKey::AppDescription);
 
     egui::Window::new(title)
-        .open(&mut app.show_about)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .collapsible(false)
         .resizable(false)
         .fixed_size([320.0, 200.0])
         .show(ui.ctx(), |ui| {
+            let mut should_close = false;
             ui.vertical_centered(|ui| {
                 ui.add_space(20.0);
                 ui.heading("FastView");
@@ -237,8 +246,12 @@ fn render_about_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                     "https://github.com/wsyqn6/fastview",
                 );
                 ui.add_space(20.0);
-                // 点击确定按钮关闭窗口（通过 open 参数自动处理）
-                let _ = ui.button(ok_text);
+                if ui.button(ok_text).clicked() {
+                    should_close = true;
+                }
             });
+            if should_close {
+                app.show_about = false;
+            }
         });
 }

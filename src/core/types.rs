@@ -22,18 +22,18 @@ impl Default for Language {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub language: Language,
-    pub max_cache_size: usize,
     pub show_status_bar: bool,
     pub thumbnail_bar_enabled: bool, // 缩略图导航栏开关
+    pub borderless_mode: bool,       // 无边框模式开关
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             language: Language::default(),
-            max_cache_size: 10,
             show_status_bar: true,
             thumbnail_bar_enabled: true, // 默认启用
+            borderless_mode: false,      // 默认有边框
         }
     }
 }
@@ -167,8 +167,8 @@ mod tests {
     #[test]
     fn test_settings_default_values() {
         let settings = Settings::default();
-        assert!(settings.max_cache_size > 0);
         assert!(settings.show_status_bar); // 默认显示状态栏
         assert!(settings.thumbnail_bar_enabled); // 默认启用缩略图栏
+        assert!(!settings.borderless_mode); // 默认有边框
     }
 }
