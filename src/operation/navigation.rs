@@ -165,25 +165,6 @@ pub fn preload_adjacent_images(app: &mut FastViewApp) {
         return;
     }
 
-    // 检查当前图片是否已在缓存中（已加载完成）
-    let current_loaded = {
-        if let Some(ref path) = app.current_path {
-            let cache_guard = lock_or_recover(&app.image_cache);
-            cache_guard.contains(path)
-        } else {
-            false
-        }
-    };
-
-    // 只有当前图片加载完成后才预加载
-    if !current_loaded {
-        debug_log!(
-            "[{:.3}s] [NAV] 跳过预加载：当前图片尚未加载完成",
-            elapsed_ms() as f64 / 1000.0
-        );
-        return;
-    }
-
     let mut to_prefetch = Vec::new();
 
     // 策略：优先预加载下一张，其次是上两张，避免加载已看过的
