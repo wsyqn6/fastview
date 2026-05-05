@@ -103,6 +103,9 @@ pub struct FastViewApp {
 
     // 缩略图管理器
     pub(crate) thumbnail_mgr: ThumbnailManager,
+
+    // 纹理复用池
+    pub(crate) texture_pool: crate::core::texture_pool::TexturePool,
 }
 
 impl Default for FastViewApp {
@@ -145,6 +148,7 @@ impl Default for FastViewApp {
             tile_textures: std::collections::HashMap::new(),
 
             thumbnail_mgr: ThumbnailManager::new(),
+            texture_pool: crate::core::texture_pool::TexturePool::new(3), // 最多缓存 3 个纹理
         }
     }
 }

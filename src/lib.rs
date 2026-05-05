@@ -29,6 +29,7 @@ pub mod app;
 pub mod core {
     pub mod i18n;
     pub mod loader;
+    pub mod texture_pool;
     pub mod thumbnail;
     pub mod thumbnail_cache;
     pub mod types;

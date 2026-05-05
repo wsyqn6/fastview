@@ -77,20 +77,27 @@ pub fn apply_cached_entry(
 
     match entry {
         CacheEntry::Decoded(image) => {
-            // 从解码数据创建纹理（使用固定ID，egui会自动覆盖旧纹理）
+            // 从解码数据创建纹理（使用纹理池）
             let image_size = egui::vec2(image.width as f32, image.height as f32);
-            let texture_id = "current_image"; // 固定ID，避免纹理累积
+            
+            // 从池中获取或创建纹理
+            let mut texture = app.texture_pool.acquire(ctx);
             let color_image = egui::ColorImage::from_rgba_unmultiplied(
                 [image.width as usize, image.height as usize],
                 &image.data,
             );
-            let texture = ctx.load_texture(texture_id, color_image, egui::TextureOptions::LINEAR);
+            texture.set(color_image, egui::TextureOptions::LINEAR);
 
             debug_log!(
-                "[{:.3}s] [CACHE] 缓存纹理创建完成: {}",
+                "[{:.3}s] [CACHE] 缓存纹理创建完成 (pool size: {})",
                 elapsed_ms() as f64 / 1000.0,
-                texture_id
+                app.texture_pool.len()
             );
+
+            // 释放旧纹理回池
+            if let Some(old_texture) = app.texture.take() {
+                app.texture_pool.release(old_texture);
+            }
 
             // 显示图片
             app.texture = Some(texture);
