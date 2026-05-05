@@ -1,7 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 use crate::core::types::{CacheEntry, DecodedImage, TileInfo, TiledImage};
@@ -121,6 +121,9 @@ pub struct ImageLoader {
     cmd_rx: Receiver<LoadCommand>,
     result_tx: Sender<LoadResult>,
 
+    // 用于 condvar 通知的事件信号
+    pending_signal: Arc<(Mutex<bool>, Condvar)>,
+
     cache: lru::LruCache<PathBuf, Arc<DecodedImage>>,
 
     pending: VecDeque<PendingTask>,
@@ -143,6 +146,7 @@ pub struct ImageLoader {
 impl ImageLoader {
     pub fn new(result_tx: Sender<LoadResult>) -> (Self, Sender<LoadCommand>) {
         let (cmd_tx, cmd_rx) = channel();
+        let pending_signal = Arc::new((Mutex::new(false), Condvar::new()));
 
         // 创建rayon线程池（根据CPU核心数动态调整）
         let num_cpus = std::thread::available_parallelism()
@@ -178,6 +182,7 @@ impl ImageLoader {
         let loader = Self {
             cmd_rx,
             result_tx,
+            pending_signal,
             cache: lru::LruCache::new(crate::utils::to_non_zero_usize(8, 10)),
             pending: VecDeque::new(),
             active_tasks: Arc::new(Mutex::new(HashSet::new())),
@@ -195,12 +200,14 @@ impl ImageLoader {
     }
 
     pub fn run(mut self) {
+        let signal_clone = self.pending_signal.clone();
+
         loop {
+            // 1. 处理所有待处理命令
             while let Ok(cmd) = self.cmd_rx.try_recv() {
                 match cmd {
                     LoadCommand::Load { path, priority } => {
                         self.handle_load(path, priority);
-                        // 高优先级任务立即处理
                         if priority >= LoadPriority::High {
                             self.process_pending();
                         }
@@ -251,11 +258,30 @@ impl ImageLoader {
                         }
                     }
                 }
+
+                // 有新任务时通知等待线程
+                let (lock, cvar) = &*signal_clone;
+                *lock.lock().unwrap() = true;
+                cvar.notify_one();
             }
 
+            // 2. 处理待处理任务
             self.process_pending();
 
-            std::thread::sleep(std::time::Duration::from_millis(5));
+            // 3. 等待新任务或超时（最多等待 100ms）
+            let (lock, cvar) = &*self.pending_signal;
+            let mut has_work = lock.lock().unwrap();
+
+            // 如果没有待处理任务，进入等待
+            if self.pending.is_empty() {
+                *has_work = false;
+                let timeout = std::time::Duration::from_millis(100);
+                let result = cvar.wait_timeout(has_work, timeout).unwrap();
+                has_work = result.0;
+
+                // 超时后继续循环（允许定期清理等维护操作）
+            }
+            // 如果有待处理任务，立即继续处理
         }
     }
 
