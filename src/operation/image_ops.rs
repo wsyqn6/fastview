@@ -59,7 +59,12 @@ pub fn toggle_fullscreen(app: &mut FastViewApp, ctx: &egui::Context) {
 /// 切换无边框模式
 pub fn toggle_borderless(app: &mut FastViewApp, ctx: &egui::Context) {
     app.is_borderless = !app.is_borderless;
+
+    // 发送 viewport 命令切换窗口装饰
     ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app.is_borderless));
+
+    // 立即请求重绘，确保 UI 快速响应状态变化
+    ctx.request_repaint();
 }
 
 /// 切换状态栏显示

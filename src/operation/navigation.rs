@@ -40,6 +40,12 @@ pub fn prev_image(app: &mut FastViewApp, ctx: &egui::Context) {
         path.file_name()
     );
 
+    // 启动切换动画（如果当前有纹理）
+    if app.texture.is_some() {
+        app.previous_texture = app.texture.clone();
+        // transition_alpha 会在 ui() 中由 animate_value_with_time 自动从 0 开始插值
+    }
+
     // 调用缓存管理器加载图片
     crate::operation::cache_manager::load_image(app, &path, ctx).ok();
 
@@ -82,6 +88,12 @@ pub fn next_image(app: &mut FastViewApp, ctx: &egui::Context) {
         elapsed_ms() as f64 / 1000.0,
         path.file_name()
     );
+
+    // 启动切换动画（如果当前有纹理）
+    if app.texture.is_some() {
+        app.previous_texture = app.texture.clone();
+        // transition_alpha 会在 ui() 中由 animate_value_with_time 自动从 0 开始插值
+    }
 
     // 调用缓存管理器加载图片
     crate::operation::cache_manager::load_image(app, &path, ctx).ok();

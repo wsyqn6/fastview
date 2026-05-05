@@ -98,7 +98,40 @@ fn render_main_image(app: &mut FastViewApp, ui: &mut egui::Ui, available: egui::
         let angle_rad = app.rotation * std::f32::consts::TAU / 360.0;
         image = image.rotate(angle_rad, egui::Vec2::splat(0.5));
     }
+
+    // 如果有过渡动画，绘制旧图（渐隐）和新图（渐显）
+    if let Some(ref prev_tex) = app.previous_texture {
+        let alpha = app.transition_alpha.clamp(0.0, 1.0);
+
+        // 绘制旧图（底层，渐隐）
+        let old_alpha = (1.0 - alpha).clamp(0.0, 1.0);
+        if old_alpha > 0.01 {
+            // 避免绘制几乎不可见的图像
+            let mut prev_image = egui::Image::new((prev_tex.id(), size));
+            if app.rotation != 0.0 {
+                let angle_rad = app.rotation * std::f32::consts::TAU / 360.0;
+                prev_image = prev_image.rotate(angle_rad, egui::Vec2::splat(0.5));
+            }
+            let tint_old =
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, (old_alpha * 255.0) as u8);
+            prev_image = prev_image.tint(tint_old);
+            ui.put(absolute_rect, prev_image);
+        }
+
+        // 绘制新图（顶层，渐显）
+        if alpha < 1.0 {
+            let tint_new =
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, (alpha * 255.0) as u8);
+            image = image.tint(tint_new);
+        }
+    }
+
     ui.put(absolute_rect, image);
+
+    // 动画结束后清理旧纹理
+    if app.transition_alpha >= 1.0 && app.previous_texture.is_some() {
+        app.previous_texture = None;
+    }
 
     // 如果是分块图片，渲染已加载的块
     if let Some(ref tiled) = app.tiled_image {

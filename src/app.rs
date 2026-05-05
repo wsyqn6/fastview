@@ -106,6 +106,10 @@ pub struct FastViewApp {
 
     // 纹理复用池
     pub(crate) texture_pool: crate::core::texture_pool::TexturePool,
+
+    // 图片切换动画状态
+    pub(crate) transition_alpha: f32, // 当前透明度 0.0-1.0
+    pub(crate) previous_texture: Option<egui::TextureHandle>, // 旧纹理引用
 }
 
 impl Default for FastViewApp {
@@ -149,6 +153,10 @@ impl Default for FastViewApp {
 
             thumbnail_mgr: ThumbnailManager::new(),
             texture_pool: crate::core::texture_pool::TexturePool::new(3), // 最多缓存 3 个纹理
+
+            // 动画状态初始化
+            transition_alpha: 1.0,
+            previous_texture: None,
         }
     }
 }
@@ -408,6 +416,13 @@ impl Drop for FastViewApp {
 
 impl eframe::App for FastViewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 更新切换动画（每帧调用以驱动动画）
+        if self.previous_texture.is_some() {
+            // 使用动态 ID 确保每次切换都能正确重启动画
+            let animation_id = egui::Id::new(format!("image_transition_{}", self.current_index));
+            self.transition_alpha = ui.ctx().animate_value_with_time(animation_id, 1.0, 0.15);
+        }
+
         // 处理错误恢复标记
         let mut should_retry = false;
         let mut should_clear_error = false;
