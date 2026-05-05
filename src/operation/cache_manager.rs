@@ -79,7 +79,7 @@ pub fn apply_cached_entry(
         CacheEntry::Decoded(image) => {
             // 从解码数据创建纹理（使用纹理池）
             let image_size = egui::vec2(image.width as f32, image.height as f32);
-            
+
             // 从池中获取或创建纹理
             let mut texture = app.texture_pool.acquire(ctx);
             let color_image = egui::ColorImage::from_rgba_unmultiplied(

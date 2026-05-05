@@ -31,15 +31,8 @@ impl TexturePool {
             // 创建新纹理（使用唯一 ID 字符串）
             let id = NEXT_TEXTURE_ID.fetch_add(1, Ordering::Relaxed);
             let texture_id = format!("texture_pool_{}", id);
-            let empty_image = egui::ColorImage::from_rgba_unmultiplied(
-                [1, 1],
-                &[0, 0, 0, 0],
-            );
-            ctx.load_texture(
-                &texture_id,
-                empty_image,
-                egui::TextureOptions::LINEAR,
-            )
+            let empty_image = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
+            ctx.load_texture(&texture_id, empty_image, egui::TextureOptions::LINEAR)
         }
     }
 

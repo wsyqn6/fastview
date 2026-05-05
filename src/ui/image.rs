@@ -304,8 +304,8 @@ fn render_empty_state(app: &FastViewApp, ui: &mut egui::Ui, available: egui::Vec
         // 错误状态：显示友好提示框
         ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
             ui.add_space(available.y / 3.0);
-            
-            egui::Frame::popup(&ui.style())
+
+            egui::Frame::popup(ui.style())
                 .fill(egui::Color32::from_rgb(255, 200, 200))
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
@@ -321,7 +321,7 @@ fn render_empty_state(app: &FastViewApp, ui: &mut egui::Ui, available: egui::Vec
                                 .color(egui::Color32::DARK_RED),
                         );
                         ui.add_space(8.0);
-                        
+
                         ui.horizontal(|ui| {
                             if ui.button("🔄 重试").clicked() {
                                 // 需要可变引用，这里只能标记，在外部处理

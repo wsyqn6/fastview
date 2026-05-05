@@ -8,7 +8,7 @@ macro_rules! debug_log {
     ($($arg:tt)*) => {
         #[cfg(debug_assertions)]
         eprintln!($($arg)*);
-        
+
         #[cfg(not(debug_assertions))]
         {}; // 编译器会完全优化掉
     };
