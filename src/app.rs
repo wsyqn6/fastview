@@ -277,6 +277,14 @@ impl FastViewApp {
         operation::cache_manager::load_image(self, path, ctx)
     }
 
+    /// 重新加载当前图片（用于错误恢复）
+    pub fn retry_load_current_image(&mut self, ctx: &egui::Context) {
+        self.load_error = None;
+        if let Some(path) = self.current_path.clone() {
+            let _ = self.load_image(&path, ctx);
+        }
+    }
+
     /// 应用缓存条目
     pub(crate) fn apply_cached_entry(
         &mut self,
@@ -396,6 +404,28 @@ impl Drop for FastViewApp {
 
 impl eframe::App for FastViewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 处理错误恢复标记
+        let mut should_retry = false;
+        let mut should_clear_error = false;
+        
+        ui.ctx().data_mut(|data| {
+            if data.get_temp::<bool>(egui::Id::new("retry_load")).unwrap_or(false) {
+                should_retry = true;
+                data.remove::<bool>(egui::Id::new("retry_load"));
+            }
+            if data.get_temp::<bool>(egui::Id::new("clear_error")).unwrap_or(false) {
+                should_clear_error = true;
+                data.remove::<bool>(egui::Id::new("clear_error"));
+            }
+        });
+        
+        if should_retry {
+            self.retry_load_current_image(ui.ctx());
+        }
+        if should_clear_error {
+            self.load_error = None;
+        }
+        
         // 处理全屏UI自动隐藏
         lifecycle::handle_fullscreen_ui(self, ui);
 

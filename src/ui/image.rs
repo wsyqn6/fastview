@@ -300,18 +300,53 @@ fn render_tiled_placeholder(_app: &FastViewApp, _ui: &mut egui::Ui, _available: 
 
 /// 渲染空状态
 fn render_empty_state(app: &FastViewApp, ui: &mut egui::Ui, available: egui::Vec2) {
-    let text = if let Some(error) = &app.load_error {
-        error.as_str()
+    if let Some(error) = &app.load_error {
+        // 错误状态：显示友好提示框
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.add_space(available.y / 3.0);
+            
+            egui::Frame::popup(&ui.style())
+                .fill(egui::Color32::from_rgb(255, 200, 200))
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("⚠️ 加载失败")
+                                .size(14.0)
+                                .color(egui::Color32::RED),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(error)
+                                .size(12.0)
+                                .color(egui::Color32::DARK_RED),
+                        );
+                        ui.add_space(8.0);
+                        
+                        ui.horizontal(|ui| {
+                            if ui.button("🔄 重试").clicked() {
+                                // 需要可变引用，这里只能标记，在外部处理
+                                ui.ctx().data_mut(|data| {
+                                    data.insert_temp(egui::Id::new("retry_load"), true);
+                                });
+                            }
+                            if ui.button("❌ 关闭").clicked() {
+                                ui.ctx().data_mut(|data| {
+                                    data.insert_temp(egui::Id::new("clear_error"), true);
+                                });
+                            }
+                        });
+                    });
+                });
+        });
     } else {
-        "拖放图片或按 Ctrl+O 打开"
-    };
-
-    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-        ui.add_space(available.y / 3.0);
-        ui.label(
-            egui::RichText::new(text)
-                .size(14.0)
-                .color(egui::Color32::GRAY),
-        );
-    });
+        // 正常空状态
+        ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.add_space(available.y / 3.0);
+            ui.label(
+                egui::RichText::new("拖放图片或按 Ctrl+O 打开")
+                    .size(14.0)
+                    .color(egui::Color32::GRAY),
+            );
+        });
+    }
 }
