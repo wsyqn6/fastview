@@ -11,9 +11,9 @@ env:
   RUST_VERSION: stable
 
 jobs:
-  # 代码质量检查
-  check:
-    name: Check
+  # 代码质量检查（最快反馈）
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,21 +26,16 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}-check-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Check formatting
         run: cargo fmt --check
       
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
-      
-      - name: Check build
-        run: cargo check --all-targets
 
-  # 测试
+  # 多平台测试
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -56,17 +51,30 @@ jobs:
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Run tests
         run: cargo test --verbose
 
-  # Linux 构建
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
+  # Release 构建（仅在 main 分支或 tag 时执行）
+  build:
+    name: Build (${{ matrix.os }})
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: fastview-linux
+            binary_path: target/release/fastview
+          - os: windows-latest
+            artifact_name: fastview-windows
+            binary_path: target/release/fastview.exe
+          - os: macos-latest
+            artifact_name: fastview-macos
+            binary_path: target/release/fastview
     
     steps:
       - uses: actions/checkout@v4
@@ -74,15 +82,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
       
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
       
       - name: Build release
         run: cargo build --release
@@ -90,60 +97,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fastview-linux
-          path: target/release/fastview
-          retention-days: 7
-
-  # Windows 构建
-  build-windows:
-    name: Build Windows
-    runs-on: windows-latest
-    timeout-minutes: 20
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build release
-        run: cargo build --release
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fastview-windows
-          path: target/release/fastview.exe
-          retention-days: 7
-
-  # macOS 构建
-  build-macos:
-    name: Build macOS
-    runs-on: macos-latest
-    timeout-minutes: 20
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build release
-        run: cargo build --release
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fastview-macos
-          path: target/release/fastview
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.binary_path }}
           retention-days: 7

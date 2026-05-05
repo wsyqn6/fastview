@@ -81,10 +81,10 @@ fn load_chinese_font() -> Result<Vec<u8>, std::io::Error> {
         if let Ok(data) = load_system_font("WenQuanYi") {
             return Ok(data);
         }
-        return Err(std::io::Error::new(
+        Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "No Chinese font found",
-        ));
+        ))
     }
 }
 

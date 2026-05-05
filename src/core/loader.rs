@@ -459,7 +459,7 @@ impl ImageLoader {
 
         self.pending
             .make_contiguous()
-            .sort_by(|a, b| b.priority.cmp(&a.priority));
+            .sort_by_key(|task| std::cmp::Reverse(task.priority));
 
         if let Some(task) = self.pending.pop_front() {
             let path = task.path.clone();
