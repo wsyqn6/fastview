@@ -576,13 +576,6 @@ impl FastViewApp {
                 "fastview-updater"
             });
 
-        #[cfg(debug_assertions)]
-        {
-            println!("[DEBUG] Updater path: {:?}", updater_path);
-            println!("[DEBUG] Source: {:?}", downloaded_path);
-            println!("[DEBUG] Target: {:?}", current_exe);
-        }
-
         match std::process::Command::new(&updater_path)
             .arg("--source")
             .arg(&downloaded_path)

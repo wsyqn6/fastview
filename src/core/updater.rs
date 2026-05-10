@@ -100,7 +100,12 @@ pub fn download_update(
         .call()
         .map_err(|e| format!("Download failed: {}", e))?;
 
-    let total_size = asset.size;
+    // 从响应头获取文件大小（优先使用 Content-Length）
+    let total_size = response
+        .header("Content-Length")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(asset.size);
+    
     let mut downloaded: u64 = 0;
 
     // 读取响应数据
