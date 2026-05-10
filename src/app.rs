@@ -110,6 +110,12 @@ pub struct FastViewApp {
     // 图片切换动画状态
     pub(crate) transition_alpha: f32, // 当前透明度 0.0-1.0
     pub(crate) previous_texture: Option<egui::TextureHandle>, // 旧纹理引用
+
+    // 自动更新状态
+    pub(crate) update_status: crate::core::updater::UpdateStatus,
+    pub(crate) update_thread: Option<std::thread::JoinHandle<()>>,
+    pub(crate) check_update_rx: Option<std::sync::mpsc::Receiver<Result<crate::core::updater::UpdateStatus, String>>>,
+    pub(crate) download_progress_rx: Option<std::sync::mpsc::Receiver<f32>>,
 }
 
 impl Default for FastViewApp {
@@ -157,6 +163,12 @@ impl Default for FastViewApp {
             // 动画状态初始化
             transition_alpha: 1.0,
             previous_texture: None,
+
+            // 更新状态初始化
+            update_status: crate::core::updater::UpdateStatus::NotChecked,
+            update_thread: None,
+            check_update_rx: None,
+            download_progress_rx: None,
         }
     }
 }
@@ -383,6 +395,150 @@ impl FastViewApp {
         operation::image_ops::toggle_status_bar(self);
     }
 
+    /// 开始检查更新
+    pub fn check_for_updates(&mut self) {
+        if !matches!(self.update_status, crate::core::updater::UpdateStatus::NotChecked) {
+            return;
+        }
+
+        self.update_status = crate::core::updater::UpdateStatus::Checking;
+        let current_version = self.get_version().to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        self.check_update_rx = Some(rx);
+        self.update_thread = Some(std::thread::spawn(move || {
+            let result = crate::core::updater::check_for_updates(&current_version);
+            let _ = tx.send(result);
+        }));
+    }
+
+    /// 处理更新检查结果（在 ui 循环中调用）
+    pub fn poll_update_status(&mut self) {
+        if let Some(rx) = self.check_update_rx.take() {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(status) => self.update_status = status,
+                    Err(e) => self.update_status = crate::core::updater::UpdateStatus::Error(e),
+                }
+                self.update_thread = None;
+            } else {
+                // 还没完成，放回去
+                self.check_update_rx = Some(rx);
+            }
+        }
+    }
+
+    /// 开始下载更新
+    pub fn start_update_download(&mut self) {
+        let asset = match &self.update_status {
+            crate::core::updater::UpdateStatus::UpdateAvailable { asset, .. } => asset.clone(),
+            _ => return,
+        };
+
+        self.update_status = crate::core::updater::UpdateStatus::Downloading(0.0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.download_progress_rx = Some(rx);
+
+        self.update_thread = Some(std::thread::spawn(move || {
+            let result = crate::core::updater::download_update(&asset, |progress| {
+                let _ = tx.send(progress);
+            });
+
+            // 发送最终结果标记
+            match result {
+                Ok(path) => {
+                    let path_file = std::env::temp_dir().join("fastview_update_path");
+                    let _ = std::fs::write(&path_file, path.to_string_lossy().as_bytes());
+                    let _ = tx.send(-1.0);
+                }
+                Err(e) => {
+                    let error_file = std::env::temp_dir().join("fastview_update_error");
+                    let _ = std::fs::write(&error_file, e.as_bytes());
+                    let _ = tx.send(-2.0);
+                }
+            }
+        }));
+    }
+
+    /// 处理下载进度（在 ui 循环中调用）
+    pub fn poll_download_progress(&mut self) {
+        if let Some(rx) = self.download_progress_rx.take() {
+            if let Ok(progress) = rx.try_recv() {
+                if progress < 0.0 {
+                    if progress == -1.0 {
+                        let path_file = std::env::temp_dir().join("fastview_update_path");
+                        if let Ok(path_str) = std::fs::read_to_string(&path_file) {
+                            self.update_status = crate::core::updater::UpdateStatus::DownloadComplete(
+                                PathBuf::from(path_str)
+                            );
+                        } else {
+                            self.update_status = crate::core::updater::UpdateStatus::Error(
+                                "Failed to get download path".to_string()
+                            );
+                        }
+                    } else {
+                        let error_file = std::env::temp_dir().join("fastview_update_error");
+                        let error_msg = std::fs::read_to_string(&error_file)
+                            .unwrap_or_else(|_| "Unknown error".to_string());
+                        self.update_status = crate::core::updater::UpdateStatus::Error(error_msg);
+                    }
+                    self.update_thread = None;
+                } else {
+                    self.update_status = crate::core::updater::UpdateStatus::Downloading(progress);
+                    self.download_progress_rx = Some(rx); // 继续监听
+                }
+            } else {
+                self.download_progress_rx = Some(rx); // 继续监听
+            }
+        }
+    }
+
+    /// 取消下载
+    pub fn cancel_update_download(&mut self) {
+        self.update_thread = None;
+        self.download_progress_rx = None;
+        self.update_status = crate::core::updater::UpdateStatus::NotChecked;
+    }
+
+    /// 执行更新（启动 updater）
+    pub fn execute_update(&mut self) {
+        let downloaded_path = match &self.update_status {
+            crate::core::updater::UpdateStatus::DownloadComplete(path) => path.clone(),
+            _ => return,
+        };
+
+        let current_exe = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(_) => return,
+        };
+
+        let updater_path = current_exe
+            .parent()
+            .unwrap()
+            .join(if cfg!(target_os = "windows") {
+                "fastview-updater.exe"
+            } else {
+                "fastview-updater"
+            });
+
+        match std::process::Command::new(&updater_path)
+            .arg("--source")
+            .arg(&downloaded_path)
+            .arg("--target")
+            .arg(&current_exe)
+            .arg("--restart")
+            .spawn()
+        {
+            Ok(_) => std::process::exit(0),
+            Err(e) => {
+                log_error!("Failed to start updater: {}", e);
+                self.update_status = crate::core::updater::UpdateStatus::Error(
+                    format!("Failed to start updater: {}", e)
+                );
+            }
+        }
+    }
+
     /// 内存检查和淘汰（如果超出限制则移除最旧条目）
     pub(crate) fn evict_if_needed(
         &self,
@@ -416,6 +572,10 @@ impl Drop for FastViewApp {
 
 impl eframe::App for FastViewApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 处理更新状态轮询
+        self.poll_update_status();
+        self.poll_download_progress();
+
         // 更新切换动画（每帧调用以驱动动画）
         if self.previous_texture.is_some() {
             // 使用动态 ID 确保每次切换都能正确重启动画

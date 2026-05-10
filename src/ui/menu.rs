@@ -135,9 +135,10 @@ fn render_help_menu(app: &mut FastViewApp, ui: &mut egui::Ui) {
         }
         ui.separator();
 
-        // 检查更新（禁用状态，预留接口）
-        ui.add_enabled_ui(false, |ui| {
-            let _ = ui.button(app.t(TextKey::CheckForUpdates));
-        });
+        // 检查更新
+        if ui.button(app.t(TextKey::CheckForUpdates)).clicked() {
+            app.check_for_updates();
+            ui.close();
+        }
     });
 }

@@ -69,6 +69,20 @@ pub enum TextKey {
     Chinese,
     English,
     Close,
+
+    // Update
+    UpdateAvailable,
+    CurrentVersion,
+    LatestVersion,
+    DownloadAndUpdate,
+    Cancel,
+    Downloading,
+    DownloadComplete,
+    RestartNow,
+    RemindLater,
+    NetworkError,
+    UpdateFailed,
+    AlreadyUpToDate,
 }
 
 impl TextKey {
@@ -131,6 +145,20 @@ impl TextKey {
             TextKey::Chinese => "中文",
             TextKey::English => "英文",
             TextKey::Close => "关闭",
+
+            // Update
+            TextKey::UpdateAvailable => "发现新版本",
+            TextKey::CurrentVersion => "当前版本",
+            TextKey::LatestVersion => "最新版本",
+            TextKey::DownloadAndUpdate => "下载并更新",
+            TextKey::Cancel => "取消",
+            TextKey::Downloading => "正在下载...",
+            TextKey::DownloadComplete => "下载完成",
+            TextKey::RestartNow => "立即重启",
+            TextKey::RemindLater => "稍后提醒",
+            TextKey::NetworkError => "网络连接失败，请检查网络后重试",
+            TextKey::UpdateFailed => "更新失败",
+            TextKey::AlreadyUpToDate => "已是最新版本",
         }
     }
 
@@ -185,6 +213,20 @@ impl TextKey {
             TextKey::Chinese => "Chinese",
             TextKey::English => "English",
             TextKey::Close => "Close",
+
+            // Update
+            TextKey::UpdateAvailable => "Update Available",
+            TextKey::CurrentVersion => "Current Version",
+            TextKey::LatestVersion => "Latest Version",
+            TextKey::DownloadAndUpdate => "Download & Update",
+            TextKey::Cancel => "Cancel",
+            TextKey::Downloading => "Downloading...",
+            TextKey::DownloadComplete => "Download Complete",
+            TextKey::RestartNow => "Restart Now",
+            TextKey::RemindLater => "Remind Me Later",
+            TextKey::NetworkError => "Network error. Please check your connection and try again.",
+            TextKey::UpdateFailed => "Update failed",
+            TextKey::AlreadyUpToDate => "You are up to date",
         }
     }
 }

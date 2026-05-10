@@ -8,6 +8,7 @@ pub fn render_dialogs(app: &mut FastViewApp, ui: &mut egui::Ui) {
     render_settings_dialog(app, ui);
     render_shortcuts_dialog(app, ui);
     render_about_dialog(app, ui);
+    super::update_dialog::render_update_dialogs(app, ui);
 }
 
 /// 渲染设置对话框

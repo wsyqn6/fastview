@@ -64,6 +64,7 @@ pub mod ui {
     pub mod menu;
     pub mod status;
     pub mod thumbnail_manager;
+    pub mod update_dialog;
 
     // 重新导出常用函数
     pub use menu::render_menu_bar;
