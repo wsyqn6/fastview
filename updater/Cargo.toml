@@ -1,0 +1,11 @@
+[package]
+name = "fastview-updater"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal updater for FastView"
+
+[[bin]]
+name = "fastview-updater"
+path = "src/main.rs"
+
+[dependencies]

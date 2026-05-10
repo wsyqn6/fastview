@@ -33,6 +33,7 @@ pub mod core {
     pub mod thumbnail;
     pub mod thumbnail_cache;
     pub mod types;
+    pub mod updater;
 
     // 重新导出常用类型
     pub use i18n::TextKey;
