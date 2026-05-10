@@ -105,7 +105,7 @@ pub fn download_update(
         .header("Content-Length")
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(asset.size);
-    
+
     let mut downloaded: u64 = 0;
 
     // 读取响应数据

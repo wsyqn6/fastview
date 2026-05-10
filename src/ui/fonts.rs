@@ -78,20 +78,20 @@ pub fn start_async_font_loader(ctx: egui::Context) {
                     ];
                     for path in emoji_paths {
                         let emoji_path = std::path::PathBuf::from(path);
-                        if emoji_path.exists() {
-                            if let Ok(emoji_data) = std::fs::read(&emoji_path) {
-                                fonts.font_data.insert(
-                                    "emoji".to_owned(),
-                                    Arc::new(egui::FontData::from_owned(emoji_data)),
-                                );
-                                fonts
-                                    .families
-                                    .entry(egui::FontFamily::Proportional)
-                                    .or_default()
-                                    .insert(0, "emoji".to_owned());
-                                debug_log!("[FONT] Emoji font loaded: {}", path);
-                                break;
-                            }
+                        if emoji_path.exists()
+                            && let Ok(emoji_data) = std::fs::read(&emoji_path)
+                        {
+                            fonts.font_data.insert(
+                                "emoji".to_owned(),
+                                Arc::new(egui::FontData::from_owned(emoji_data)),
+                            );
+                            fonts
+                                .families
+                                .entry(egui::FontFamily::Proportional)
+                                .or_default()
+                                .insert(0, "emoji".to_owned());
+                            debug_log!("[FONT] Emoji font loaded: {}", path);
+                            break;
                         }
                     }
                 }
@@ -260,19 +260,19 @@ pub fn setup_fonts(cc: &eframe::CreationContext<'_>) {
         ];
         for path in emoji_paths {
             let emoji_path = std::path::PathBuf::from(path);
-            if emoji_path.exists() {
-                if let Ok(emoji_data) = std::fs::read(&emoji_path) {
-                    fonts.font_data.insert(
-                        "emoji".to_owned(),
-                        Arc::new(egui::FontData::from_owned(emoji_data)),
-                    );
-                    fonts
-                        .families
-                        .entry(egui::FontFamily::Proportional)
-                        .or_default()
-                        .insert(0, "emoji".to_owned());
-                    break;
-                }
+            if emoji_path.exists()
+                && let Ok(emoji_data) = std::fs::read(&emoji_path)
+            {
+                fonts.font_data.insert(
+                    "emoji".to_owned(),
+                    Arc::new(egui::FontData::from_owned(emoji_data)),
+                );
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, "emoji".to_owned());
+                break;
             }
         }
     }
