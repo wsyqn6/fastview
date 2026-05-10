@@ -47,10 +47,10 @@ pub enum UpdateStatus {
 
 /// 检查更新
 pub fn check_for_updates(current_version: &str) -> Result<UpdateStatus, String> {
-    // 本地测试用（临时修改）
-    let url = "http://localhost:8765/repos/wsyqn6/fastview/releases/latest";
-    // 生产环境使用：
-    // let url = "https://api.github.com/repos/wsyqn6/fastview/releases/latest";
+    // 生产环境
+    let url = "https://api.github.com/repos/wsyqn6/fastview/releases/latest";
+    // 本地测试用（临时修改）：
+    // let url = "http://localhost:8765/repos/wsyqn6/fastview/releases/latest";
 
     // 发送 HTTP 请求
     let response = ureq::get(url)

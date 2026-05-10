@@ -2,20 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: stable
 
 jobs:
-  # 代码质量检查（最快反馈）
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  # 代码质量检查 + 测试（合并为一个job提升速度）
+  check:
+    name: Check & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    
     steps:
       - uses: actions/checkout@v4
       
@@ -25,44 +29,26 @@ jobs:
           components: rustfmt, clippy
       
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v4
       
       - name: Check formatting
         run: cargo fmt --check
       
-      - name: Run Clippy
+      - name: Run Clippy (includes cargo check)
         run: cargo clippy --all-targets -- -D warnings
-
-  # 多平台测试
-  test:
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
       
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --all-targets
 
   # Release 构建（仅在 main 分支或 tag 时执行）
-  build:
-    name: Build (${{ matrix.os }})
+  build-release:
+    name: Build Release (${{ matrix.os }})
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    needs: check
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         include:
@@ -89,7 +75,7 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
       
       - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v4
       
       - name: Build release
         run: cargo build --release
