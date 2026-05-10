@@ -8,6 +8,7 @@ use crate::core::{TextKey, updater::UpdateStatus};
 /// 渲染更新相关对话框
 pub fn render_update_dialogs(app: &mut FastViewApp, ui: &mut egui::Ui) {
     render_checking_dialog(app, ui);
+    render_up_to_date_dialog(app, ui);
     render_update_available_dialog(app, ui);
     render_downloading_dialog(app, ui);
     render_download_complete_dialog(app, ui);
@@ -38,12 +39,47 @@ fn render_checking_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
         });
 }
 
+/// 已是最新对话框
+fn render_up_to_date_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
+    if app.update_status != UpdateStatus::UpToDate {
+        return;
+    }
+
+    let title = app.t(TextKey::AlreadyUpToDate);
+    let ok_text = app.t(TextKey::OK);
+
+    egui::Window::new(title)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .collapsible(false)
+        .resizable(false)
+        .fixed_size([350.0, 150.0])
+        .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(15.0);
+                // 使用绿色勾 emoji (✔️)
+                ui.label(
+                    egui::RichText::new("\u{2714}\u{FE0F}") // ✔ + 变体选择符-16
+                        .size(48.0)
+                        .color(egui::Color32::from_rgb(34, 197, 94)), // 鲜艳的绿色
+                );
+                ui.add_space(10.0);
+                ui.label(title);
+                ui.add_space(15.0);
+                if ui.button(ok_text).clicked() {
+                    app.update_status = UpdateStatus::NotChecked;
+                }
+            });
+        });
+}
+
 /// 发现更新对话框
 fn render_update_available_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
     let update_info = match &app.update_status {
-        UpdateStatus::UpdateAvailable { version, changelog, asset } => {
-            (version.clone(), changelog.clone(), asset.clone())
-        }
+        UpdateStatus::UpdateAvailable {
+            version,
+            changelog,
+            asset,
+        } => (version.clone(), changelog.clone(), asset.clone()),
         _ => return,
     };
 
@@ -69,22 +105,25 @@ fn render_update_available_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     ui.label(format!("{}: {}", current_version_label, current_version));
                     ui.add_space(20.0);
-                    ui.label(egui::RichText::new(format!("{}: {}", latest_version_label, version)).strong());
+                    ui.label(
+                        egui::RichText::new(format!("{}: {}", latest_version_label, version))
+                            .strong(),
+                    );
                 });
-                
+
                 ui.separator();
 
                 // 更新内容
                 ui.label(egui::RichText::new("What's New").strong());
                 ui.add_space(4.0);
-                
+
                 egui::ScrollArea::vertical()
                     .max_height(180.0)
                     .show(ui, |ui| {
                         ui.label(
                             egui::RichText::new(&changelog)
                                 .size(11.0)
-                                .color(ui.visuals().text_color())
+                                .color(ui.visuals().text_color()),
                         );
                     });
 
@@ -137,16 +176,16 @@ fn render_downloading_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                 ui.add_space(20.0);
                 ui.label(downloading_text);
                 ui.add_space(10.0);
-                
+
                 // 进度条
                 ui.add(
                     egui::ProgressBar::new(progress)
                         .show_percentage()
-                        .animate(true)
+                        .animate(true),
                 );
-                
+
                 ui.add_space(20.0);
-                
+
                 if ui.button(cancel_text).clicked() {
                     should_cancel = true;
                 }
@@ -181,7 +220,7 @@ fn render_download_complete_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                 ui.add_space(20.0);
                 ui.label(complete_text);
                 ui.add_space(20.0);
-                
+
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(restart_text).clicked() {
@@ -225,7 +264,7 @@ fn render_error_dialog(app: &mut FastViewApp, ui: &mut egui::Ui) {
                 ui.add_space(20.0);
                 ui.colored_label(egui::Color32::RED, &error_msg);
                 ui.add_space(20.0);
-                
+
                 if ui.button(ok_text).clicked() {
                     should_close = true;
                 }

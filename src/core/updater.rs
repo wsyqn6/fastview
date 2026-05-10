@@ -47,7 +47,10 @@ pub enum UpdateStatus {
 
 /// 检查更新
 pub fn check_for_updates(current_version: &str) -> Result<UpdateStatus, String> {
-    let url = "https://api.github.com/repos/wsyqn6/fastview/releases/latest";
+    // 本地测试用（临时修改）
+    let url = "http://localhost:8765/repos/wsyqn6/fastview/releases/latest";
+    // 生产环境使用：
+    // let url = "https://api.github.com/repos/wsyqn6/fastview/releases/latest";
 
     // 发送 HTTP 请求
     let response = ureq::get(url)
@@ -63,7 +66,9 @@ pub fn check_for_updates(current_version: &str) -> Result<UpdateStatus, String> 
     if is_newer_version(&release.tag_name, current_version) {
         // 选择适合当前平台的资产
         if let Some(asset) = select_platform_asset(&release.assets).cloned() {
-            let changelog = release.body.unwrap_or_else(|| "No changelog available".to_string());
+            let changelog = release
+                .body
+                .unwrap_or_else(|| "No changelog available".to_string());
             Ok(UpdateStatus::UpdateAvailable {
                 version: release.tag_name.trim_start_matches('v').to_string(),
                 changelog,
@@ -87,7 +92,7 @@ pub fn download_update(
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp directory: {}", e))?;
 
-    let target_path = temp_dir.join(&asset.name);
+    let zip_path = temp_dir.join(&asset.name);
 
     // 发送下载请求
     let response = ureq::get(&asset.browser_download_url)
@@ -100,8 +105,8 @@ pub fn download_update(
 
     // 读取响应数据
     let mut reader = response.into_reader();
-    let mut file = std::fs::File::create(&target_path)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
+    let mut file =
+        std::fs::File::create(&zip_path).map_err(|e| format!("Failed to create file: {}", e))?;
 
     let mut buffer = vec![0u8; 8192];
     loop {
@@ -125,7 +130,50 @@ pub fn download_update(
         }
     }
 
-    Ok(target_path)
+    drop(file); // 关闭文件
+
+    // 如果是 zip 文件，解压并提取 exe
+    if asset.name.ends_with(".zip") {
+        let exe_path = extract_exe_from_zip(&zip_path, &temp_dir)?;
+        // 删除 zip 文件，只保留 exe
+        let _ = std::fs::remove_file(&zip_path);
+        return Ok(exe_path);
+    }
+
+    Ok(zip_path)
+}
+
+/// 从 zip 文件中提取 exe
+fn extract_exe_from_zip(zip_path: &PathBuf, temp_dir: &std::path::Path) -> Result<PathBuf, String> {
+    let file = std::fs::File::open(zip_path).map_err(|e| format!("Failed to open zip: {}", e))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Failed to read zip: {}", e))?;
+
+    // 查找 exe 文件
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Failed to read entry: {}", e))?;
+
+        let entry_name = entry.name().to_string();
+        if entry_name.ends_with(".exe") && !entry_name.contains('/') {
+            // 直接位于根目录的 exe 文件
+            let exe_path = temp_dir.join(std::path::Path::new(&entry_name).file_name().unwrap());
+
+            let mut exe_file = std::fs::File::create(&exe_path)
+                .map_err(|e| format!("Failed to create exe: {}", e))?;
+
+            std::io::copy(&mut entry, &mut exe_file)
+                .map_err(|e| format!("Failed to extract exe: {}", e))?;
+
+            #[cfg(debug_assertions)]
+            println!("[UPDATE] Extracted: {:?}", exe_path);
+
+            return Ok(exe_path);
+        }
+    }
+
+    Err("No .exe file found in zip archive".to_string())
 }
 
 /// 判断新版本是否更新
@@ -138,7 +186,7 @@ fn is_newer_version(new_version: &str, current_version: &str) -> bool {
 }
 
 /// 比较两个版本号
-fn version_greater_than(v1: &str, v2: &str) -> bool {
+pub fn version_greater_than(v1: &str, v2: &str) -> bool {
     let parts1: Vec<u32> = v1.split('.').filter_map(|s| s.parse().ok()).collect();
     let parts2: Vec<u32> = v2.split('.').filter_map(|s| s.parse().ok()).collect();
 
@@ -157,7 +205,7 @@ fn version_greater_than(v1: &str, v2: &str) -> bool {
 }
 
 /// 根据平台选择合适的资产
-fn select_platform_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
+pub fn select_platform_asset(assets: &[GitHubAsset]) -> Option<&GitHubAsset> {
     #[cfg(target_os = "windows")]
     let platform_pattern = "windows";
 

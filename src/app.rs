@@ -114,7 +114,8 @@ pub struct FastViewApp {
     // 自动更新状态
     pub(crate) update_status: crate::core::updater::UpdateStatus,
     pub(crate) update_thread: Option<std::thread::JoinHandle<()>>,
-    pub(crate) check_update_rx: Option<std::sync::mpsc::Receiver<Result<crate::core::updater::UpdateStatus, String>>>,
+    pub(crate) check_update_rx:
+        Option<std::sync::mpsc::Receiver<Result<crate::core::updater::UpdateStatus, String>>>,
     pub(crate) download_progress_rx: Option<std::sync::mpsc::Receiver<f32>>,
 }
 
@@ -397,33 +398,72 @@ impl FastViewApp {
 
     /// 开始检查更新
     pub fn check_for_updates(&mut self) {
-        if !matches!(self.update_status, crate::core::updater::UpdateStatus::NotChecked) {
+        eprintln!(
+            "[DEBUG] check_for_updates called, current status: {:?}",
+            self.update_status
+        );
+
+        if !matches!(
+            self.update_status,
+            crate::core::updater::UpdateStatus::NotChecked
+        ) {
+            eprintln!("[DEBUG] Already checking or downloading, returning early");
             return;
         }
 
+        eprintln!("[DEBUG] Setting status to Checking");
         self.update_status = crate::core::updater::UpdateStatus::Checking;
         let current_version = self.get_version().to_string();
-        let (tx, rx) = std::sync::mpsc::channel();
+        eprintln!("[DEBUG] Current version: {}", current_version);
 
+        let (tx, rx) = std::sync::mpsc::channel();
         self.check_update_rx = Some(rx);
+
+        eprintln!("[DEBUG] Spawning background thread");
         self.update_thread = Some(std::thread::spawn(move || {
+            eprintln!("[UPDATE] Background thread started");
             let result = crate::core::updater::check_for_updates(&current_version);
+            eprintln!("[UPDATE] Got result: {:?}", result.is_ok());
             let _ = tx.send(result);
+            eprintln!("[UPDATE] Result sent");
         }));
+        eprintln!("[DEBUG] check_for_updates finished");
+
+        // 触发 UI 重绘以显示对话框
+        // 注意:这里无法直接访问 ctx,需要在调用方处理
     }
 
     /// 处理更新检查结果（在 ui 循环中调用）
     pub fn poll_update_status(&mut self) {
         if let Some(rx) = self.check_update_rx.take() {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(status) => self.update_status = status,
-                    Err(e) => self.update_status = crate::core::updater::UpdateStatus::Error(e),
+            match rx.try_recv() {
+                Ok(result) => {
+                    eprintln!("[POLL] Received update check result");
+                    match result {
+                        Ok(status) => {
+                            eprintln!("[POLL] Status: {:?}", status);
+                            self.update_status = status;
+                        }
+                        Err(e) => {
+                            eprintln!("[POLL] Error: {}", e);
+                            self.update_status = crate::core::updater::UpdateStatus::Error(e);
+                        }
+                    }
+                    self.update_thread = None;
+                    // 触发重绘以显示新状态的对话框
+                    // ctx 需要在调用方获取
                 }
-                self.update_thread = None;
-            } else {
-                // 还没完成，放回去
-                self.check_update_rx = Some(rx);
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // 还没完成，放回去继续等待
+                    self.check_update_rx = Some(rx);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("[POLL] Channel disconnected");
+                    self.update_status = crate::core::updater::UpdateStatus::Error(
+                        "Update check failed".to_string(),
+                    );
+                    self.update_thread = None;
+                }
             }
         }
     }
@@ -463,32 +503,47 @@ impl FastViewApp {
     /// 处理下载进度（在 ui 循环中调用）
     pub fn poll_download_progress(&mut self) {
         if let Some(rx) = self.download_progress_rx.take() {
-            if let Ok(progress) = rx.try_recv() {
-                if progress < 0.0 {
-                    if progress == -1.0 {
-                        let path_file = std::env::temp_dir().join("fastview_update_path");
-                        if let Ok(path_str) = std::fs::read_to_string(&path_file) {
-                            self.update_status = crate::core::updater::UpdateStatus::DownloadComplete(
-                                PathBuf::from(path_str)
-                            );
+            match rx.try_recv() {
+                Ok(progress) => {
+                    if progress < 0.0 {
+                        eprintln!("[POLL] Download finished or error: {}", progress);
+                        if progress == -1.0 {
+                            let path_file = std::env::temp_dir().join("fastview_update_path");
+                            if let Ok(path_str) = std::fs::read_to_string(&path_file) {
+                                self.update_status =
+                                    crate::core::updater::UpdateStatus::DownloadComplete(
+                                        PathBuf::from(path_str),
+                                    );
+                            } else {
+                                self.update_status = crate::core::updater::UpdateStatus::Error(
+                                    "Failed to get download path".to_string(),
+                                );
+                            }
                         } else {
-                            self.update_status = crate::core::updater::UpdateStatus::Error(
-                                "Failed to get download path".to_string()
-                            );
+                            let error_file = std::env::temp_dir().join("fastview_update_error");
+                            let error_msg = std::fs::read_to_string(&error_file)
+                                .unwrap_or_else(|_| "Unknown error".to_string());
+                            self.update_status =
+                                crate::core::updater::UpdateStatus::Error(error_msg);
                         }
+                        self.update_thread = None;
                     } else {
-                        let error_file = std::env::temp_dir().join("fastview_update_error");
-                        let error_msg = std::fs::read_to_string(&error_file)
-                            .unwrap_or_else(|_| "Unknown error".to_string());
-                        self.update_status = crate::core::updater::UpdateStatus::Error(error_msg);
+                        eprintln!("[POLL] Download progress: {:.1}%", progress * 100.0);
+                        self.update_status =
+                            crate::core::updater::UpdateStatus::Downloading(progress);
+                        self.download_progress_rx = Some(rx); // 继续监听
                     }
-                    self.update_thread = None;
-                } else {
-                    self.update_status = crate::core::updater::UpdateStatus::Downloading(progress);
-                    self.download_progress_rx = Some(rx); // 继续监听
                 }
-            } else {
-                self.download_progress_rx = Some(rx); // 继续监听
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // 还没收到新进度，继续监听
+                    self.download_progress_rx = Some(rx);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    eprintln!("[POLL] Download channel disconnected");
+                    self.update_status =
+                        crate::core::updater::UpdateStatus::Error("Download failed".to_string());
+                    self.update_thread = None;
+                }
             }
         }
     }
@@ -521,6 +576,13 @@ impl FastViewApp {
                 "fastview-updater"
             });
 
+        #[cfg(debug_assertions)]
+        {
+            println!("[DEBUG] Updater path: {:?}", updater_path);
+            println!("[DEBUG] Source: {:?}", downloaded_path);
+            println!("[DEBUG] Target: {:?}", current_exe);
+        }
+
         match std::process::Command::new(&updater_path)
             .arg("--source")
             .arg(&downloaded_path)
@@ -532,9 +594,10 @@ impl FastViewApp {
             Ok(_) => std::process::exit(0),
             Err(e) => {
                 log_error!("Failed to start updater: {}", e);
-                self.update_status = crate::core::updater::UpdateStatus::Error(
-                    format!("Failed to start updater: {}", e)
-                );
+                self.update_status = crate::core::updater::UpdateStatus::Error(format!(
+                    "Failed to start updater: {}",
+                    e
+                ));
             }
         }
     }

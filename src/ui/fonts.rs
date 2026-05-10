@@ -27,18 +27,87 @@ pub fn start_async_font_loader(ctx: egui::Context) {
                     t0.elapsed().as_millis()
                 );
 
-                // 构建完整字体配置
+                // 构建完整字体配置（包含 emoji 支持）
                 let mut fonts = egui::FontDefinitions::default();
+
+                // 添加 emoji 字体支持
+                #[cfg(windows)]
+                {
+                    let emoji_path = std::path::PathBuf::from("C:/Windows/Fonts/seguiemj.ttf");
+                    if emoji_path.exists()
+                        && let Ok(emoji_data) = std::fs::read(&emoji_path)
+                    {
+                        fonts.font_data.insert(
+                            "emoji".to_owned(),
+                            Arc::new(egui::FontData::from_owned(emoji_data)),
+                        );
+                        fonts
+                            .families
+                            .entry(egui::FontFamily::Proportional)
+                            .or_default()
+                            .insert(0, "emoji".to_owned());
+                        debug_log!("[FONT] Emoji font loaded: seguiemj.ttf");
+                    }
+                }
+
+                #[cfg(target_os = "macos")]
+                {
+                    let emoji_path =
+                        std::path::PathBuf::from("/System/Library/Fonts/Apple Color Emoji.ttc");
+                    if emoji_path.exists() {
+                        if let Ok(emoji_data) = std::fs::read(&emoji_path) {
+                            fonts.font_data.insert(
+                                "emoji".to_owned(),
+                                Arc::new(egui::FontData::from_owned(emoji_data)),
+                            );
+                            fonts
+                                .families
+                                .entry(egui::FontFamily::Proportional)
+                                .or_default()
+                                .insert(0, "emoji".to_owned());
+                            debug_log!("[FONT] Emoji font loaded: Apple Color Emoji");
+                        }
+                    }
+                }
+
+                #[cfg(target_os = "linux")]
+                {
+                    let emoji_paths = &[
+                        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+                        "/usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf",
+                    ];
+                    for path in emoji_paths {
+                        let emoji_path = std::path::PathBuf::from(path);
+                        if emoji_path.exists() {
+                            if let Ok(emoji_data) = std::fs::read(&emoji_path) {
+                                fonts.font_data.insert(
+                                    "emoji".to_owned(),
+                                    Arc::new(egui::FontData::from_owned(emoji_data)),
+                                );
+                                fonts
+                                    .families
+                                    .entry(egui::FontFamily::Proportional)
+                                    .or_default()
+                                    .insert(0, "emoji".to_owned());
+                                debug_log!("[FONT] Emoji font loaded: {}", path);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // 添加中文字体
                 fonts.font_data.insert(
                     "chinese".to_owned(),
                     Arc::new(egui::FontData::from_owned(data)),
                 );
 
+                // 中文字体插入到位置1，保持emoji在位置0
                 fonts
                     .families
                     .entry(egui::FontFamily::Proportional)
                     .or_default()
-                    .insert(0, "chinese".to_owned());
+                    .insert(1, "chinese".to_owned());
 
                 fonts
                     .families
@@ -143,6 +212,71 @@ fn load_system_font(name: &str) -> Result<Vec<u8>, std::io::Error> {
 pub fn setup_fonts(cc: &eframe::CreationContext<'_>) {
     let mut fonts = egui::FontDefinitions::default();
 
+    // 添加 emoji 字体支持 (使用系统自带的 Segoe UI Emoji 或 Noto Color Emoji)
+    #[cfg(windows)]
+    {
+        // Windows: Segoe UI Emoji
+        let emoji_path = std::path::PathBuf::from("C:/Windows/Fonts/seguiemj.ttf");
+        if emoji_path.exists()
+            && let Ok(emoji_data) = std::fs::read(&emoji_path)
+        {
+            fonts.font_data.insert(
+                "emoji".to_owned(),
+                Arc::new(egui::FontData::from_owned(emoji_data)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "emoji".to_owned());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: Apple Color Emoji
+        let emoji_path = std::path::PathBuf::from("/System/Library/Fonts/Apple Color Emoji.ttc");
+        if emoji_path.exists() {
+            if let Ok(emoji_data) = std::fs::read(&emoji_path) {
+                fonts.font_data.insert(
+                    "emoji".to_owned(),
+                    Arc::new(egui::FontData::from_owned(emoji_data)),
+                );
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, "emoji".to_owned());
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: Noto Color Emoji
+        let emoji_paths = &[
+            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+            "/usr/share/fonts/noto-color-emoji/NotoColorEmoji.ttf",
+        ];
+        for path in emoji_paths {
+            let emoji_path = std::path::PathBuf::from(path);
+            if emoji_path.exists() {
+                if let Ok(emoji_data) = std::fs::read(&emoji_path) {
+                    fonts.font_data.insert(
+                        "emoji".to_owned(),
+                        Arc::new(egui::FontData::from_owned(emoji_data)),
+                    );
+                    fonts
+                        .families
+                        .entry(egui::FontFamily::Proportional)
+                        .or_default()
+                        .insert(0, "emoji".to_owned());
+                    break;
+                }
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         // 尝试加载微软雅黑字体
@@ -152,11 +286,12 @@ pub fn setup_fonts(cc: &eframe::CreationContext<'_>) {
                 Arc::new(egui::FontData::from_owned(font_data)),
             );
 
+            // 中文字体插入到位置1，保持emoji在位置0
             fonts
                 .families
                 .entry(egui::FontFamily::Proportional)
                 .or_default()
-                .insert(0, "chinese".to_owned());
+                .insert(1, "chinese".to_owned());
 
             fonts
                 .families

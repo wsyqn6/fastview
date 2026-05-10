@@ -137,7 +137,9 @@ fn render_help_menu(app: &mut FastViewApp, ui: &mut egui::Ui) {
 
         // 检查更新
         if ui.button(app.t(TextKey::CheckForUpdates)).clicked() {
+            eprintln!("[MENU] Check for updates button clicked");
             app.check_for_updates();
+            ui.ctx().request_repaint(); // 强制重绘以显示对话框
             ui.close();
         }
     });
