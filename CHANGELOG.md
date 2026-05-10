@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-10
+
+### Changed
+- Removed test_update_server binary configuration from Cargo.toml
+- Updated auto-update UI integration with improved dialog handling
+
+### Fixed
+- Resolved clippy warnings for unnecessary casts
+- Fixed code formatting issues in updater module
+
 ## [0.3.0] - 2026-04-26
 
 ### Added
