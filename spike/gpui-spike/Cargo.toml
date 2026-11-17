@@ -1,0 +1,25 @@
+[package]
+name = "gpui-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# 独立 workspace，避免拖慢 fastview 主构建
+[workspace]
+
+[dependencies]
+gpui = { package = "gpui-unofficial", version = "1.28.1" }
+gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "1.28.1" }
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# spike 只验证能力，不做体积优化
+[profile.release]
+codegen-units = 16

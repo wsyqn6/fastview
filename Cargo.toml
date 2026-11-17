@@ -13,6 +13,8 @@ edition = "2024"
 
 [workspace]
 members = [".", "updater"]
+# spike 是独立的实验 crate（gpui 评估），不参与主 workspace 构建
+exclude = ["spike"]
 
 [lints.rust]
 dead_code = "allow"
