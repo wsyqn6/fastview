@@ -1107,10 +1107,13 @@ impl Spike {
         let view_width: f32 = self.view_size(window).width.into();
         let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
 
+        // 目录只有两张图时前后邻居重合，必须去重，否则同一张会被解两次
         let targets: Vec<PathBuf> = [-1isize, 1]
             .into_iter()
             .filter_map(|delta| folder.peek(delta).map(|path| path.to_path_buf()))
             .filter(|path| !self.cache.contains(path) && !self.prefetching.contains(path))
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
         if targets.is_empty() {
             return;
