@@ -71,8 +71,8 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 ### 实施批次
 
 1. ✅ **首帧分级解码**：`spike/gpui-spike/src/decode`（`probe` → `pick_denom` → WIC 缩放 → 方向归一 + `image` 兜底）。8000×3000 实测 46 ms / 5.72 MB，20000×2000 实测 41 ms / 2.38 MB。
-2. **档位补齐**：视口或缩放变化时异步补更清晰的一档，按 generation 去重，不重复解同一档。
-3. **缩略图条**：`IShellItemImageFactory` 取系统缩略图，命中即用。
+2. ✅ **档位补齐**：`schedule_sharpen` 在 render 里检测，按 generation 去重；分档允许 5% 插值放大，避免临界点跳档。
+3. ✅ **缩略图条 + 目录翻页**：`shell.rs` 取系统 thumbcache，`folder.rs` 扫目录并自然排序，`←/→` 循环翻页。
 4. **内存预算 + 预取**：按字节淘汰，前后各预取 2~3 张低档预览。
 5. **L2 分块**（最后做）：整图解码一次 → 按行写入 1024 块 → 可见块优先上传。
 

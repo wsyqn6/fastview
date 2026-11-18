@@ -8,22 +8,30 @@
 //!
 //! 分块渲染与缓存尚未接入；首帧不做整图解码（见 `decode` 模块）。
 
+#[cfg(windows)]
+mod com;
 mod decode;
+mod folder;
 #[cfg(windows)]
 mod menu;
+#[cfg(windows)]
+mod shell;
 mod viewer;
 #[cfg(windows)]
 mod win;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, Div, FocusHandle, HighlightStyle, Hsla,
     KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit,
-    Path, PathPromptOptions, Pixels, Point, ScrollDelta, ScrollEvent, Size, StyledText,
+    Path, PathPromptOptions, Pixels, Point, RenderImage, ScrollDelta, ScrollEvent, ScrollHandle,
+    Size, StyledText,
     Subscription, TitlebarOptions, UnderlineStyle, Window, WindowAppearance,
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, canvas, div, hsla,
     img, point, prelude::*, px, rgb, size,
@@ -40,6 +48,14 @@ const CLOSE_HOVER: u32 = 0xc42b1c;
 const CLOSE_ACTIVE: u32 = 0xb0271a;
 /// 下拉菜单面板宽度：容纳最长标签 + 右对齐的快捷键列
 const MENU_WIDTH: f32 = 232.0;
+/// 缩略图条高度：显示时从视口高度里扣掉
+const THUMB_BAR_HEIGHT: f32 = 88.0;
+/// 单个缩略图边长
+const THUMB_SIZE: f32 = 64.0;
+/// 向系统要的缩略图长边（留 HiDPI 余量，实际尺寸由 shell 决定）
+const THUMB_EDGE: u32 = 160;
+/// 单个目录最多加载多少张缩略图
+const MAX_THUMBS: usize = 512;
 
 /// 跟随系统深浅色的配色
 ///
@@ -131,6 +147,18 @@ struct Spike {
     sharpen: Option<u32>,
     /// 补过但失败的档位，避免每帧重试
     sharpen_failed: Option<u32>,
+    /// 同目录图片列表：翻页与缩略图条共用
+    folder: Option<folder::Folder>,
+    /// 缩略图纹理，键为文件路径
+    thumbs: HashMap<PathBuf, Arc<RenderImage>>,
+    /// 目录 generation：换目录后丢弃旧的缩略图结果
+    thumb_gen: u64,
+    /// 缩略图条是否显示
+    show_thumbs: bool,
+    /// 缩略图条横向滚动位置
+    thumb_scroll: ScrollHandle,
+    /// 已经滚动定位到哪一项，避免每帧重滚
+    thumb_scrolled: Option<usize>,
     /// 拖拽平移的上一帧位置
     drag_last: Option<Point<gpui::Pixels>>,
     /// 键盘快捷键
@@ -735,11 +763,19 @@ impl Spike {
         window.defer(cx, move |_, _| win::apply_window_frame(hwnd, border_rgb));
     }
 
-    /// 视口（标题栏以下的内容区）尺寸
-    fn view_size(window: &Window) -> Size<gpui::Pixels> {
+    /// 视口（标题栏以下、缩略图条以上）尺寸
+    fn view_size(&self, window: &Window) -> Size<gpui::Pixels> {
         let viewport = window.viewport_size();
         let height: f32 = viewport.height.into();
-        size(viewport.width, px((height - TITLEBAR_HEIGHT).max(0.0)))
+        let bar = if self.show_thumbs {
+            THUMB_BAR_HEIGHT
+        } else {
+            0.0
+        };
+        size(
+            viewport.width,
+            px((height - TITLEBAR_HEIGHT - bar).max(0.0)),
+        )
     }
 
     /// 当前图片的逻辑尺寸（无图时用 1×1 占位，避免除零）
@@ -775,16 +811,17 @@ impl Spike {
     }
 
     /// 后台分级解码并替换当前图片
-    fn open_path(&mut self, path: PathBuf, window: &Window, cx: &mut Context<Self>) {
+    fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         self.load_id = self.load_id.wrapping_add(1);
         let load_id = self.load_id;
         self.loading = true;
         self.error = None;
         self.sharpen = None;
         self.sharpen_failed = None;
+        self.sync_folder(&path, window, cx);
 
         // 首帧按视口宽度选档：能覆盖视口即可，不必解全图
-        let view = Self::view_size(window);
+        let view = self.view_size(window);
         let view_width: f32 = view.width.into();
         let view_height: f32 = view.height.into();
         let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
@@ -851,6 +888,163 @@ impl Spike {
         .detach();
     }
 
+    /// 让目录列表跟上当前文件：同目录只移动游标，换目录则重扫并重载缩略图
+    fn sync_folder(&mut self, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
+        let parent = path.parent();
+        if let Some(folder) = self.folder.as_mut()
+            && Some(folder.dir.as_path()) == parent
+        {
+            folder.select(path);
+            return;
+        }
+
+        // 换目录：旧缩略图纹理必须显式回收
+        for (_, image) in self.thumbs.drain() {
+            let _ = window.drop_image(image);
+        }
+        self.thumb_gen = self.thumb_gen.wrapping_add(1);
+        self.folder = folder::Folder::scan(path);
+
+        if self.show_thumbs {
+            let generation = self.thumb_gen;
+            self.load_thumbnails(generation, cx);
+        }
+    }
+
+    /// 后台串行加载缩略图：shell 首次生成慢，命中缓存只要几毫秒
+    fn load_thumbnails(&mut self, generation: u64, cx: &mut Context<Self>) {
+        let Some(folder) = self.folder.as_ref() else {
+            return;
+        };
+        // 目录过大时只做前一段，避免长时间占用后台线程
+        let files: Vec<PathBuf> = folder.files.iter().take(MAX_THUMBS).cloned().collect();
+        let total = files.len();
+
+        cx.spawn(async move |this, cx| {
+            let started = Instant::now();
+            let mut loaded = 0usize;
+
+            for path in files {
+                let task = path.clone();
+                let thumb = cx
+                    .background_executor()
+                    .spawn(async move { shell::thumbnail(&task, THUMB_EDGE) })
+                    .await;
+                let Ok(thumb) = thumb else {
+                    continue;
+                };
+                let Some(buffer) = image::RgbaImage::from_raw(thumb.width, thumb.height, thumb.bgra)
+                else {
+                    continue;
+                };
+
+                loaded += 1;
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        // 已换目录，丢弃结果
+                        if this.thumb_gen != generation {
+                            return false;
+                        }
+                        let texture = Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
+                        this.thumbs.insert(path, texture);
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    return;
+                }
+            }
+
+            eprintln!(
+                "[SPIKE] thumbnails {loaded}/{total} in {} ms",
+                started.elapsed().as_millis()
+            );
+        })
+        .detach();
+    }
+
+    /// 显示 / 隐藏缩略图条；首次打开时才去碰系统缓存
+    fn toggle_thumbs(&mut self, cx: &mut Context<Self>) {
+        self.show_thumbs = !self.show_thumbs;
+        eprintln!(
+            "[SPIKE] thumbnails {} ({} files)",
+            if self.show_thumbs { "on" } else { "off" },
+            self.folder.as_ref().map_or(0, |folder| folder.files.len())
+        );
+        if self.show_thumbs && self.thumbs.is_empty() {
+            let generation = self.thumb_gen;
+            self.load_thumbnails(generation, cx);
+        }
+        cx.notify();
+    }
+
+    /// 上一张 / 下一张（循环）
+    fn step_image(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(folder) = self.folder.as_mut() else {
+            return;
+        };
+        let Some(path) = folder.step(forward).map(|path| path.to_path_buf()) else {
+            return;
+        };
+        self.open_path(path, window, cx);
+    }
+
+    /// 缩略图条：底部横向排布，点击切换
+    fn render_thumbnails(&mut self, palette: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let Some(folder) = self.folder.as_ref() else {
+            return div().into_any_element();
+        };
+        let current = folder.index;
+
+        // 换图后把当前项滚进可视区（目录几十张时看不到高亮就没意义了）
+        if self.thumb_scrolled != Some(current) {
+            self.thumb_scroll.scroll_to_item(current);
+            self.thumb_scrolled = Some(current);
+        }
+
+        let items = folder.files.iter().take(MAX_THUMBS).enumerate().map(
+            |(index, path)| {
+                let selected = index == folder.index;
+                let target = path.clone();
+                div()
+                    .id(("thumb", index))
+                    .flex_none()
+                    .size(px(THUMB_SIZE))
+                    .overflow_hidden()
+                    .rounded(px(4.0))
+                    .bg(palette.active)
+                    .when(selected, |this| {
+                        this.border_2().border_color(hsla(0.55, 1.0, 0.65, 1.0))
+                    })
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_path(target.clone(), window, cx);
+                    }))
+                    .when_some(self.thumbs.get(path).cloned(), |this, image| {
+                        this.child(img(image).object_fit(ObjectFit::Contain).size_full())
+                    })
+                    .into_any_element()
+            },
+        );
+
+        div()
+            .id("thumbbar")
+            .flex_none()
+            .h(px(THUMB_BAR_HEIGHT))
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .overflow_x_scroll()
+            .track_scroll(&self.thumb_scroll)
+            .bg(palette.content_bg)
+            .children(items)
+            .into_any_element()
+    }
+
     /// 换图时释放旧纹理：gpui 不会随 `RenderImage` 销毁自动回收 atlas
     fn replace_image(
         &mut self,
@@ -872,7 +1066,7 @@ impl Spike {
         let Some(image) = self.image.as_ref() else {
             return;
         };
-        let view = Self::view_size(window);
+        let view = self.view_size(window);
         let base = image.logical_size(window.scale_factor());
         let zoom = self.view.scale(view, base);
         let need_px = (image.pixel_size.0 as f32 * zoom).round().max(1.0) as u32;
@@ -943,7 +1137,7 @@ impl Spike {
         if self.image.is_none() {
             return;
         }
-        let view = Self::view_size(window);
+        let view = self.view_size(window);
         let base = self.base_size(window);
         self.view.set_mode(mode, view, base);
     }
@@ -953,7 +1147,7 @@ impl Spike {
         if self.image.is_none() {
             return;
         }
-        let view = Self::view_size(window);
+        let view = self.view_size(window);
         let base = self.base_size(window);
         let view_w: f32 = view.width.into();
         let view_h: f32 = view.height.into();
@@ -1055,6 +1249,18 @@ impl Spike {
             "2" => self.set_mode(viewer::ViewMode::Fill, window),
             "+" | "=" => self.zoom_step(1.25, window),
             "-" | "_" => self.zoom_step(0.8, window),
+            "t" => {
+                self.toggle_thumbs(cx);
+                return;
+            }
+            "left" => {
+                self.step_image(false, window, cx);
+                return;
+            }
+            "right" => {
+                self.step_image(true, window, cx);
+                return;
+            }
             _ => return,
         }
         cx.notify();
@@ -1085,6 +1291,10 @@ impl Spike {
             Cmd::Fit => self.set_mode(viewer::ViewMode::Fit, window),
             Cmd::Original => self.set_mode(viewer::ViewMode::Original, window),
             Cmd::Fill => self.set_mode(viewer::ViewMode::Fill, window),
+            Cmd::Thumbnails => {
+                self.toggle_thumbs(cx);
+                return;
+            }
             _ => {}
         }
 
@@ -1095,7 +1305,7 @@ impl Spike {
     /// 内容区：图片 + 缩放/平移交互
     fn render_viewer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let palette = Palette::for_appearance(window.appearance());
-        let view = Self::view_size(window);
+        let view = self.view_size(window);
         let scale_factor = window.scale_factor();
 
         let mut area = div()
@@ -1123,7 +1333,7 @@ impl Spike {
                 this.drag_last = Some(event.position);
 
                 if this.image.is_some() {
-                    let view = Self::view_size(window);
+                    let view = this.view_size(window);
                     let base = this.base_size(window);
                     this.view.pan(delta, view, base);
                     cx.notify();
@@ -1137,7 +1347,7 @@ impl Spike {
                 if this.image.is_none() {
                     return;
                 }
-                let view = Self::view_size(window);
+                let view = this.view_size(window);
                 let base = this.base_size(window);
                 let dy = match event.delta {
                     ScrollDelta::Pixels(delta) => delta.y.into(),
@@ -1329,6 +1539,12 @@ impl Render for Spike {
         let titlebar = self.render_titlebar(window, cx);
         let focus_handle = self.focus_handle.clone();
         let menu_layer = self.render_menu_layer(window, cx);
+        let palette = Palette::for_appearance(window.appearance());
+        let thumb_bar = if self.show_thumbs {
+            Some(self.render_thumbnails(&palette, cx))
+        } else {
+            None
+        };
 
         div()
             .size_full()
@@ -1350,6 +1566,7 @@ impl Render for Spike {
             ))
             .child(titlebar)
             .child(self.render_viewer(window, cx))
+            .when_some(thumb_bar, |this, bar| this.child(bar))
             .when_some(menu_layer, |this, layer| this.child(layer))
     }
 }
@@ -1422,6 +1639,12 @@ fn main() {
                     load_id: 0,
                     sharpen: None,
                     sharpen_failed: None,
+                    folder: None,
+                    thumbs: HashMap::new(),
+                    thumb_gen: 0,
+                    show_thumbs: false,
+                    thumb_scroll: ScrollHandle::new(),
+                    thumb_scrolled: None,
                     drag_last: None,
                     focus_handle,
                     window_state: (false, false),

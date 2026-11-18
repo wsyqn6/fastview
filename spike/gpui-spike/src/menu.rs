@@ -16,6 +16,7 @@ pub enum Cmd {
     Original,
     Fill,
     Fullscreen,
+    Thumbnails,
     // 设置 / 帮助
     Settings,
     Shortcuts,
@@ -93,6 +94,12 @@ pub const MENUS: &[MenuSpec] = &[
                 shortcut: "F11",
                 mnemonic: 'U',
                 cmd: Cmd::Fullscreen,
+            },
+            Command {
+                label: "缩略图",
+                shortcut: "T",
+                mnemonic: 'T',
+                cmd: Cmd::Thumbnails,
             },
         ],
     },
