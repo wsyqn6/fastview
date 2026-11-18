@@ -70,6 +70,19 @@ impl Folder {
         true
     }
 
+    /// 看相邻的第 `delta` 张（循环），不移动游标；用于预取
+    pub fn peek(&self, delta: isize) -> Option<&Path> {
+        let len = self.files.len() as isize;
+        if len < 2 {
+            return None;
+        }
+        let index = (self.index as isize + delta).rem_euclid(len) as usize;
+        if index == self.index {
+            return None;
+        }
+        self.files.get(index).map(PathBuf::as_path)
+    }
+
     /// 循环前进 / 后退
     pub fn step(&mut self, forward: bool) -> Option<&Path> {
         if self.files.len() < 2 {

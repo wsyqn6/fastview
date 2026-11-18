@@ -60,7 +60,7 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - **L2 单线程串行**：整图解一次、按行写块、解完即释放；禁止并行多个全解码，峰值内存会翻倍。
 - **块尺寸 1024 且边缘块补齐**：gpui atlas 是 bucketed allocator，尺寸统一才能复用同一张纹理页。
 - **取消靠 generation id**：解码本身不可中断，切图时丢弃过期结果即可；并发上限 2。
-- **纹理必须显式回收**：gpui **不会**随 `RenderImage` 销毁清除 atlas（内无 drop 钩子），切图与补档都要 `window.drop_image()`，否则每切一次图就永久泄漏一张纹理。
+- **纹理必须显式回收**：gpui **不会**随 `RenderImage` 销毁清除 atlas（内无 drop 钩子）。纹理所有权统一交给 `cache.rs`，**淘汰时**才 `window.drop_image()`；任何新增的贴图路径都要走 `present()`，否则不是泄漏就是悬空。
 - **WIC 全尺寸解码比 zune-jpeg 慢**（71 vs 58 ms），因此 L1 走 WIC、L2 仍走 `image`。
 - **WIC 不做色彩管理**：32bppBGRA 输出是原始像素，ICC 需显式 `IWICColorTransform`（暂不做）。
 - **EXIF 方向**：WIC 不自动应用，`GetSize` 返回存储尺寸，方向需自己读 metadata 后旋转。
@@ -73,7 +73,7 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 1. ✅ **首帧分级解码**：`spike/gpui-spike/src/decode`（`probe` → `pick_denom` → WIC 缩放 → 方向归一 + `image` 兜底）。8000×3000 实测 46 ms / 5.72 MB，20000×2000 实测 41 ms / 2.38 MB。
 2. ✅ **档位补齐**：`schedule_sharpen` 在 render 里检测，按 generation 去重；分档允许 5% 插值放大，避免临界点跳档。
 3. ✅ **缩略图条 + 目录翻页**：`shell.rs` 取系统 thumbcache，`folder.rs` 扫目录并自然排序，`←/→` 循环翻页。
-4. **内存预算 + 预取**：按字节淘汰，前后各预取 2~3 张低档预览。
+4. ✅ **纹理缓存 + 预取**：`cache.rs` 按字节 LRU 缓存**已上传的纹理**（预算 192 MB，key 为「图片 + 档位」，同时存 probe 结果）。切回看过的图零解码，前后各预取 1 张。
 5. **L2 分块**（最后做）：整图解码一次 → 按行写入 1024 块 → 可见块优先上传。
 
 ## 🌿 分支策略

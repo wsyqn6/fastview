@@ -52,14 +52,9 @@ impl LoadedImage {
     }
 }
 
-/// 用预览图构造可上屏对象
-pub fn from_preview(path: PathBuf, display: (u32, u32), preview: Preview) -> LoadedImage {
-    LoadedImage {
-        path,
-        image: Arc::new(RenderImage::new(vec![image::Frame::new(preview.buffer)])),
-        pixel_size: display,
-        denom: preview.denom,
-    }
+/// 把解码结果转成可上屏、可缓存的纹理
+pub fn texture(preview: Preview) -> Arc<RenderImage> {
+    Arc::new(RenderImage::new(vec![image::Frame::new(preview.buffer)]))
 }
 
 /// 缩放方式

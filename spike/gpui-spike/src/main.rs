@@ -8,6 +8,7 @@
 //!
 //! 分块渲染与缓存尚未接入；首帧不做整图解码（见 `decode` 模块）。
 
+mod cache;
 #[cfg(windows)]
 mod com;
 mod decode;
@@ -21,7 +22,7 @@ mod viewer;
 mod win;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -56,6 +57,8 @@ const THUMB_SIZE: f32 = 64.0;
 const THUMB_EDGE: u32 = 160;
 /// 单个目录最多加载多少张缩略图
 const MAX_THUMBS: usize = 512;
+/// 图片纹理缓存预算：够存 6~8 张 4K 的 1/1，或 20 张以上的 1/2
+const IMAGE_BUDGET: usize = 192 * 1024 * 1024;
 
 /// 跟随系统深浅色的配色
 ///
@@ -157,8 +160,12 @@ struct Spike {
     show_thumbs: bool,
     /// 缩略图条横向滚动位置
     thumb_scroll: ScrollHandle,
-    /// 已经滚动定位到哪一项，避免每帧重滚
+    /// 缩略图条已滚动定位到哪一项，避免每帧重滚
     thumb_scrolled: Option<usize>,
+    /// 已解码纹理的 LRU 缓存：切回看过的图不再重解
+    cache: cache::ImageCache,
+    /// 正在预取的图，避免重复提交
+    prefetching: HashSet<PathBuf>,
     /// 拖拽平移的上一帧位置
     drag_last: Option<Point<gpui::Pixels>>,
     /// 键盘快捷键
@@ -825,6 +832,26 @@ impl Spike {
         let view_width: f32 = view.width.into();
         let view_height: f32 = view.height.into();
         let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
+
+        // 缓存命中：连 probe 都省掉，直接换纹理上屏
+        if let Some(meta) = self.cache.meta(&path) {
+            let denom = decode::pick_denom(meta.storage.0, need_px);
+            if let Some(texture) = self.cache.get(&path, denom) {
+                eprintln!(
+                    "[SPIKE] {} hit cache 1/{denom} ({}x{})",
+                    file_label(&path),
+                    meta.storage.0,
+                    meta.storage.1
+                );
+                self.loading = false;
+                self.view = viewer::ViewState::default();
+                self.error = None;
+                self.present(path, meta, denom, texture, window, cx);
+                self.prefetch_neighbors(window, cx);
+                return;
+            }
+        }
+
         eprintln!(
             "[SPIKE] loading {} (viewport {view_width}x{view_height} @{}x, need {need_px}px)",
             path.display(),
@@ -871,11 +898,10 @@ impl Spike {
                         );
                         this.view = viewer::ViewState::default();
                         this.error = None;
-                        this.replace_image(
-                            window,
-                            viewer::from_preview(task_path, display, preview),
-                            cx,
-                        );
+                        let denom = preview.denom;
+                        let texture = viewer::texture(preview);
+                        this.present(task_path, meta, denom, texture, window, cx);
+                        this.prefetch_neighbors(window, cx);
                     }
                     Err(message) => {
                         this.error = Some(message);
@@ -1045,17 +1071,99 @@ impl Spike {
             .into_any_element()
     }
 
-    /// 换图时释放旧纹理：gpui 不会随 `RenderImage` 销毁自动回收 atlas
-    fn replace_image(
+    /// 上屏并写入缓存：`self.image` 与缓存持有同一个 `Arc`
+    ///
+    /// 纹理的回收责任从这里转到缓存：淘汰时才 `drop_image`，
+    /// 这正是「切回看过的图零成本」的前提。
+    fn present(
         &mut self,
+        path: PathBuf,
+        meta: decode::ImageMeta,
+        denom: u32,
+        texture: Arc<RenderImage>,
         window: &mut Window,
-        next: viewer::LoadedImage,
         cx: &mut Context<Self>,
     ) {
-        if let Some(old) = self.image.replace(next) {
-            let _ = window.drop_image(old.image);
+        let dropped = self
+            .cache
+            .insert(path.clone(), meta, denom, Arc::clone(&texture), &path);
+        self.image = Some(viewer::LoadedImage {
+            path,
+            image: texture,
+            pixel_size: meta.display_size(),
+            denom,
+        });
+        for image in dropped {
+            let _ = window.drop_image(image);
         }
         cx.notify();
+    }
+
+    /// 预取前后各一张，让连续翻页变成瞬时
+    fn prefetch_neighbors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(folder) = self.folder.as_ref() else {
+            return;
+        };
+        let view_width: f32 = self.view_size(window).width.into();
+        let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
+
+        let targets: Vec<PathBuf> = [-1isize, 1]
+            .into_iter()
+            .filter_map(|delta| folder.peek(delta).map(|path| path.to_path_buf()))
+            .filter(|path| !self.cache.contains(path) && !self.prefetching.contains(path))
+            .collect();
+        if targets.is_empty() {
+            return;
+        }
+        for path in &targets {
+            self.prefetching.insert(path.clone());
+        }
+
+        cx.spawn(async move |this, cx| {
+            for path in targets {
+                let task = path.clone();
+                let started = Instant::now();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let meta = decode::probe(&task)?;
+                        let preview = decode::load_preview(&task, &meta, need_px)?;
+                        Ok::<_, String>((meta, preview))
+                    })
+                    .await;
+
+                this.update_in(cx, |this, window, cx| {
+                    this.prefetching.remove(&path);
+                    let Ok((meta, preview)) = result else {
+                        return;
+                    };
+                    // 用户已经切到这张了：由正常路径接管，别用预取结果顶掉在用纹理
+                    if this.image.as_ref().is_some_and(|image| image.path == path) {
+                        return;
+                    }
+                    let denom = preview.denom;
+                    let texture = viewer::texture(preview);
+                    let keep = this
+                        .image
+                        .as_ref()
+                        .map(|image| image.path.clone())
+                        .unwrap_or_default();
+
+                    let dropped = this.cache.insert(path.clone(), meta, denom, texture, &keep);
+                    for image in dropped {
+                        let _ = window.drop_image(image);
+                    }
+                    eprintln!(
+                        "[SPIKE] prefetched {} 1/{denom} in {} ms",
+                        file_label(&path),
+                        started.elapsed().as_millis()
+                    );
+                    cx.notify();
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
     /// 当前档位不足以覆盖显示尺寸时，补一张更清晰的
@@ -1113,12 +1221,9 @@ impl Spike {
                             preview.height(),
                             preview.byte_len() as f64 / 1_048_576.0
                         );
-                        let display = meta.display_size();
-                        this.replace_image(
-                            window,
-                            viewer::from_preview(path, display, preview),
-                            cx,
-                        );
+                        let denom = preview.denom;
+                        let texture = viewer::texture(preview);
+                        this.present(path, meta, denom, texture, window, cx);
                     }
                     // 补档失败保持原图，不打扰用户；记下档位避免每帧重试
                     Err(_) => {
@@ -1571,6 +1676,13 @@ impl Render for Spike {
     }
 }
 
+/// 日志用短名，避免整条路径刷屏
+fn file_label(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 /// 取窗口原生句柄（Windows）
 fn native_handle(window: &Window) -> isize {
     #[cfg(windows)]
@@ -1645,6 +1757,8 @@ fn main() {
                     show_thumbs: false,
                     thumb_scroll: ScrollHandle::new(),
                     thumb_scrolled: None,
+                    cache: cache::ImageCache::new(IMAGE_BUDGET),
+                    prefetching: HashSet::new(),
                     drag_last: None,
                     focus_handle,
                     window_state: (false, false),
