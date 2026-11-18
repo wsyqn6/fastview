@@ -1,7 +1,9 @@
 //! 菜单数据
 //!
 //! 下拉由 gpui 自绘（窗口内浮层），所以这里只放纯数据：命令、条目、快捷键、助记符。
-//! `mnemonic` 只用于匹配按键，显示时由渲染层拼成 `文件(F)`。
+//! `mnemonic` 只用于匹配按键，显示时由渲染层拼成 `文件(F)` 并给字母加下划线。
+
+use std::ops::Range;
 
 /// 菜单命令（对应 egui 版 src/ui/menu.rs 的菜单项）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,7 +144,11 @@ pub fn cmd_by_mnemonic(index: usize, key: char) -> Option<Cmd> {
     })
 }
 
-/// 显示用文案：`文件(F)` / `打开文件(O)`
-pub fn label_with_mnemonic(label: &str, mnemonic: char) -> String {
-    format!("{label}({})", mnemonic.to_ascii_uppercase())
+/// 显示文案与助记符的字节区间：`文件(F)` → 倒数第二个字符 `F`
+///
+/// `mnemonic` 限定 ASCII，因此区间固定落在末尾两字节的前一字节上。
+pub fn mnemonic_label(label: &str, mnemonic: char) -> (String, Range<usize>) {
+    let text = format!("{label}({})", mnemonic.to_ascii_uppercase());
+    let start = text.len() - 2;
+    (text, start..start + 1)
 }

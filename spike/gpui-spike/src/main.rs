@@ -20,9 +20,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Bounds, BoxShadow, Context, Div, FocusHandle, Hsla, KeyDownEvent, MouseButton,
-    MouseDownEvent, MouseMoveEvent, ObjectFit, Path, PathPromptOptions, Pixels, Point, ScrollDelta,
-    ScrollEvent, Size, Subscription, TitlebarOptions, Window, WindowAppearance,
+    AnyElement, App, Bounds, BoxShadow, Context, Div, FocusHandle, HighlightStyle, Hsla,
+    KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit,
+    Path, PathPromptOptions, Pixels, Point, ScrollDelta, ScrollEvent, Size, StyledText,
+    Subscription, TitlebarOptions, UnderlineStyle, Window, WindowAppearance,
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, canvas, div, hsla,
     img, point, prelude::*, px, rgb, size,
 };
@@ -137,6 +138,8 @@ struct Spike {
     menu_selected: Option<usize>,
     /// 顶层菜单项在窗口坐标里的位置（prepaint 每帧更新，用于定位下拉与切换）
     menu_rects: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    /// Alt 是否按住：按住才显示助记符下划线（同系统菜单）
+    alt_held: bool,
     /// 窗口失焦时收起菜单（原生菜单同行为）
     _activation_sub: Option<Subscription>,
 }
@@ -194,6 +197,31 @@ fn single_char(key: &str) -> Option<char> {
         (Some(c), None) => Some(c),
         _ => None,
     }
+}
+
+/// 助记符文本：`show_underline` 时字母加下划线，其余样式继承父级
+///
+/// 下划线颜色必须显式给：`UnderlineStyle.color` 为 `None` 时回退到透明的默认色。
+#[cfg(windows)]
+fn mnemonic_label(label: &str, mnemonic: char, color: Hsla, show_underline: bool) -> AnyElement {
+    let (text, range) = menu::mnemonic_label(label, mnemonic);
+    let styled = StyledText::new(text);
+    if !show_underline {
+        return styled.into_any_element();
+    }
+
+    let underline = HighlightStyle {
+        underline: Some(UnderlineStyle {
+            thickness: px(1.0),
+            color: Some(color),
+            wavy: false,
+        }),
+        ..Default::default()
+    };
+
+    styled
+        .with_highlights([(range, underline)])
+        .into_any_element()
 }
 
 /// 在给定中心绘制图标
@@ -323,6 +351,8 @@ impl Spike {
     fn render_titlebar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let is_maximized = window.is_maximized();
         let palette = Palette::for_appearance(window.appearance());
+        // 助记符下划线：按住 Alt 或菜单展开时显示
+        let mnemonics = self.alt_held || self.open_menu.is_some();
 
         let mut bar = div()
             .flex()
@@ -368,7 +398,7 @@ impl Spike {
                                 this.press_menu(index, window, cx);
                             }),
                         )
-                        .child(menu::label_with_mnemonic(spec.title, spec.mnemonic)),
+                        .child(mnemonic_label(spec.title, spec.mnemonic, palette.text, mnemonics)),
                 );
             }
             bar = bar.child(menus.on_children_prepainted({
@@ -562,6 +592,8 @@ impl Spike {
         let index = self.open_menu?;
         let spec = menu::MENUS.get(index)?;
         let palette = Palette::for_appearance(window.appearance());
+        // 菜单展开时条目助记符始终可见（同系统菜单）
+        let mnemonics = self.alt_held || self.open_menu.is_some();
 
         let window_width: f32 = window.viewport_size().width.into();
         let item_x = self
@@ -659,7 +691,7 @@ impl Spike {
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.dispatch(cmd, window, cx);
                         }))
-                        .child(menu::label_with_mnemonic(label, *mnemonic));
+                        .child(mnemonic_label(label, *mnemonic, palette.text, mnemonics));
 
                     if !shortcut.is_empty() {
                         row = row.child(div().flex_1()).child(
@@ -1143,11 +1175,17 @@ impl Render for Spike {
                 }));
         }
 
-        // 窗口失焦时收起菜单（系统菜单同行为）
+        // 窗口失焦时收起菜单并清掉 Alt 状态（系统菜单同行为）
         if self._activation_sub.is_none() {
             self._activation_sub =
                 Some(cx.observe_window_activation(window, |this, window, cx| {
-                    if !window.is_window_active() && this.open_menu.take().is_some() {
+                    if window.is_window_active() {
+                        return;
+                    }
+                    // Alt+Tab 时松开 Alt 收不到事件，必须自己复位下划线
+                    let alt_reset = std::mem::take(&mut this.alt_held);
+                    let menu_closed = this.open_menu.take().is_some();
+                    if alt_reset || menu_closed {
                         cx.notify();
                     }
                 }));
@@ -1166,6 +1204,15 @@ impl Render for Spike {
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 this.handle_key(event, window, cx);
             }))
+            // 助记符下划线跟着 Alt 的按下/松开走
+            .on_modifiers_changed(cx.listener(
+                |this, event: &ModifiersChangedEvent, _, cx| {
+                    if this.alt_held != event.modifiers.alt {
+                        this.alt_held = event.modifiers.alt;
+                        cx.notify();
+                    }
+                },
+            ))
             .child(titlebar)
             .child(self.render_viewer(window, cx))
             .when_some(menu_layer, |this, layer| this.child(layer))
@@ -1244,6 +1291,7 @@ fn main() {
                     open_menu: None,
                     menu_selected: None,
                     menu_rects: Rc::new(RefCell::new(Vec::new())),
+                    alt_held: false,
                     _activation_sub: None,
                 }
             });

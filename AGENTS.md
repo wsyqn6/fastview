@@ -70,6 +70,7 @@
 - `R`/`Shift+R` 旋转 | `F` 全屏 | `V` 无边框 | `S` 状态栏 | `T` 缩略图
 - `Space` 按住拖动 | `H`/`?` 帮助
 - `Alt+F/V/S/H` 展开菜单（AltGr 不算）；菜单展开后直接按 `O/X/0/1/2/U/K/A` 执行，`↑↓←→` 移动、`Enter` 执行、`Esc` 收起
+- 文案常显 `文件(F)`，下划线**只在按住 Alt 或菜单展开时**出现（同系统菜单）；Alt 状态来自元素级 `on_modifiers_changed`，失焦时手动复位（Alt+Tab 收不到 keyup）；下划线颜色必须显式指定，`UnderlineStyle.color` 为 `None` 时是透明色
 
 ## 📜 编码规范
 
