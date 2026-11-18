@@ -31,9 +31,12 @@
 | ⚙️ 配置 | serde + dirs |
 
 ## 🌿 分支策略
-- `main`：egui 主线，正常迭代。
+- `main`：egui 主线，**暂时冻结、不迭代**，只作为功能参考。
 - `explore/gpui`：gpui 重写线，**与 egui 无任何代码共享**，只保持功能对齐；实验代码在 `spike/gpui-spike`（独立 workspace，不参与主构建）。
-- 两条线各自演进，不互相 cherry-pick；公共能力（解码、缓存、配置格式）可以各自实现，不强行抽库。
+- gpui 线**不必照搬 main**：main 的设计与实现不一定合理、简洁、高效。
+  允许在功能一致的前提下重新设计，选择更简单、更正确、更高性能的实现。
+  判断标准是目标（流畅、低占用、UI 精美），不是与 main 代码形似。
+- 两条线各自演进，不互相 cherry-pick；公共能力（解码、缓存、配置格式）可各自实现，不强行抽库。
 
 ## 🪟 平台策略
 - **Windows 优先**：新能力、性能优化、交互细节都以 Win11 体验为准。
@@ -57,8 +60,8 @@
   - 最小化 / 最大化 / 关闭 → `Min` / `Max` / `Close`（`HTMINBUTTON` / `HTMAXBUTTON` / `HTCLOSE`）：系统负责点击行为、最小化/还原动画与悬停「贴靠布局」；
   - 不要再自己实现 `start_window_move` + `SetWindowPos` 的拖拽，会丢掉 DWM 动画与分屏。
 - 命中盒需要元素有显式 `.id()`，否则 `window_control_area` 不生效。
-- 窗口控制图标**用几何图形自绘**（横线 / 方框 / 双框 / `×`）：`Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框。
-- 标题栏与主体靠**底色明度**区分，不加 1px 分隔线（参考 Windows Terminal / VS Code）；材质只留在标题栏，主体用近似不透明的层。
+- 窗口控制图标**全部用几何图形自绘**（横线 / 方框 / 双框 / 两条对角线），统一 `Path` 填充 + 1px 线宽，不用字体：`Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框；文本 `×` 与几何线条粗细不一致。
+- 标题栏与主体都**不透明实色**，只靠底色明度区分，不加 1px 分隔线（参考 Windows Terminal / VS Code）；主体必须完全不透明（图片取色环境不能受桌面影响），不使用 Mica/亚克力材质。
 - 菜单入口自绘、下拉用 `TrackPopupMenuEx`，命令回到 app 层统一分发。
 
 ## ⌨️ 快捷键
@@ -114,8 +117,8 @@ cargo build
 # 运行（主线）
 cargo run --release -- <图片路径>
 
-# gpui 实验（窗口材质在「查看」菜单里切换）
-cd spike/gpui-spike && cargo run
+# gpui 实验（可直接传图片路径）
+cd spike/gpui-spike && cargo run --release -- <图片路径>
 ```
 
 环境变量（仅排查用）：`GPUI_DISABLE_DIRECT_COMPOSITION=1` 关闭 DComp，用于对比菜单条行为。

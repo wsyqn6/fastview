@@ -23,12 +23,6 @@ pub enum Cmd {
     Original,
     Fill,
     Fullscreen,
-    // 查看 → 窗口背景
-    BackdropOpaque,
-    BackdropMica,
-    BackdropMicaAlt,
-    BackdropBlurred,
-    BackdropTransparent,
     // 设置 / 帮助
     Settings,
     Shortcuts,
@@ -60,12 +54,6 @@ pub const MENUS: &[MenuSpec] = &[
             (1012, "填充窗口(&2)", Cmd::Fill),
             (0, "", Cmd::Fit),
             (1013, "全屏(&U)\tF11", Cmd::Fullscreen),
-            (0, "", Cmd::Fit),
-            (1020, "不透明背景", Cmd::BackdropOpaque),
-            (1021, "Mica 系统材质", Cmd::BackdropMica),
-            (1022, "Mica Alt 材质", Cmd::BackdropMicaAlt),
-            (1023, "亚克力模糊", Cmd::BackdropBlurred),
-            (1024, "完全透明", Cmd::BackdropTransparent),
         ],
     },
     // 顶层命令按钮（无下拉）

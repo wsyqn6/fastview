@@ -11,6 +11,14 @@ publish = false
 gpui = { package = "gpui-unofficial", version = "1.28.1" }
 gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "1.28.1" }
 raw-window-handle = "0.6"
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "bmp",
+    "tiff",
+] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
