@@ -4,10 +4,11 @@
 //! 1. 现代窗口 UI：自绘标题栏，菜单与窗口按钮都在标题栏内，不额外占一行（同 VS Code），
 //!    并保留 DWM 原生动画、拖动分屏、贴靠布局；
 //! 2. 菜单：入口与下拉都在窗口内自绘，和标题栏共用同一套配色与字号；
-//! 3. 图片查看：整图解码 → `RenderImage` → 适应/原始/填充、滚轮缩放、拖拽平移。
+//! 3. 图片查看：按视口选档的 WIC 缩放解码 → `RenderImage` → 适应/原始/填充、滚轮缩放、拖拽平移。
 //!
-//! 分块渲染与缓存尚未接入，目前用来测量整图链路的耗时与内存。
+//! 分块渲染与缓存尚未接入；首帧不做整图解码（见 `decode` 模块）。
 
+mod decode;
 #[cfg(windows)]
 mod menu;
 mod viewer;
@@ -763,26 +764,36 @@ impl Spike {
             let Some(path) = picked.and_then(|paths| paths.into_iter().next()) else {
                 return;
             };
-            this.update(cx, |this, cx| this.open_path(path, cx)).ok();
+            this.update_in(cx, |this, window, cx| this.open_path(path, window, cx))
+                .ok();
         })
         .detach();
     }
 
-    /// 后台解码并替换当前图片
-    #[cfg(windows)]
-    fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+    /// 后台分级解码并替换当前图片
+    fn open_path(&mut self, path: PathBuf, window: &Window, cx: &mut Context<Self>) {
         self.load_id = self.load_id.wrapping_add(1);
         let load_id = self.load_id;
         self.loading = true;
         self.error = None;
-        eprintln!("[SPIKE] loading {}", path.display());
+
+        // 首帧按视口宽度选档：能覆盖视口即可，不必解全图
+        let view_width: f32 = Self::view_size(window).width.into();
+        let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
+        eprintln!("[SPIKE] loading {} (need {need_px}px)", path.display());
         cx.notify();
 
         cx.spawn(async move |this, cx| {
             let task_path = path.clone();
-            let loaded = cx
+            let decode_path = task_path.clone();
+            let result = cx
                 .background_executor()
-                .spawn(async move { viewer::load(&task_path) })
+                .spawn(async move {
+                    let started = Instant::now();
+                    let meta = decode::probe(&decode_path)?;
+                    let preview = decode::load_preview(&decode_path, &meta, need_px)?;
+                    Ok::<_, String>((meta, preview, started.elapsed()))
+                })
                 .await;
 
             this.update(cx, |this, cx| {
@@ -791,9 +802,25 @@ impl Spike {
                     return;
                 }
                 this.loading = false;
-                match loaded {
-                    Ok(image) => {
-                        this.image = Some(image);
+                match result {
+                    Ok((meta, preview, elapsed)) => {
+                        let display = meta.display_size();
+                        eprintln!(
+                            "[SPIKE] {} → {}x{} (1/{}) via {} in {} ms, texture {}x{} {:.2} MB",
+                            task_path
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("?"),
+                            display.0,
+                            display.1,
+                            preview.denom,
+                            preview.backend,
+                            elapsed.as_millis(),
+                            preview.width(),
+                            preview.height(),
+                            preview.byte_len() as f64 / 1_048_576.0
+                        );
+                        this.image = Some(viewer::from_preview(task_path, display, preview));
                         this.view = viewer::ViewState::default();
                         this.error = None;
                     }
@@ -1303,8 +1330,9 @@ fn main() {
             // 命令行传入的图片在首帧后后台解码，避免阻塞启动
             if let Some(path) = initial_path.clone() {
                 let weak = view.downgrade();
-                window.defer(cx, move |_window, cx| {
-                    weak.update(cx, |this, cx| this.open_path(path, cx)).ok();
+                window.defer(cx, move |window, cx| {
+                    weak.update(cx, |this, cx| this.open_path(path, window, cx))
+                        .ok();
                 });
             }
 

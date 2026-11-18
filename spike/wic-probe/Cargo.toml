@@ -1,0 +1,19 @@
+[package]
+name = "wic-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# 独立 workspace：无窗口 CLI 探针，不参与主构建
+[workspace]
+
+[dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+] }
+# 仅用于和 image 解码做基线对比
+image = { version = "0.25", default-features = false, features = ["jpeg"] }

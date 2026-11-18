@@ -1,12 +1,14 @@
 //! 图片解码与查看状态
 //!
-//! spike 先验证一条最小链路：整图解码 → `RenderImage` → 缩放/平移。
-//! 分块渲染、缓存、翻页后续再补，这里只追求"能看、能动、能量"。
+//! 解码走 `crate::image` 的分级管道：按当前需要的设备像素选档，不整图解码。
+//! 分块渲染、缓存、翻页后续再补。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{Bounds, Pixels, Point, RenderImage, Size, point, px, size};
+
+use crate::decode::{Preview, pick_denom};
 
 /// 缩放上下限（逻辑像素 / 图片逻辑像素）
 const MIN_ZOOM: f32 = 0.02;
@@ -14,12 +16,17 @@ const MAX_ZOOM: f32 = 32.0;
 /// 平移时至少保留这么多图片可见，避免拖丢
 const KEEP_VISIBLE: f32 = 24.0;
 
-/// 已解码的图片
+/// 已上屏的图片
+///
+/// 纹理可能是低分辨率预览，`pixel_size` 始终是原始显示尺寸，
+/// 因此布局与缩放百分比不受预览档位影响。
 pub struct LoadedImage {
     pub path: PathBuf,
     pub image: Arc<RenderImage>,
-    /// 原始像素尺寸（设备像素）
+    /// 原始尺寸（已应用 EXIF 方向，设备像素）
     pub pixel_size: (u32, u32),
+    /// 当前纹理相对原始尺寸的分频（1/denom）
+    pub denom: u32,
 }
 
 impl LoadedImage {
@@ -37,44 +44,22 @@ impl LoadedImage {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| self.path.display().to_string())
     }
+
+    /// 当前纹理是否已不足以覆盖 `need_px`（需要补更清晰的一档）
+    #[allow(dead_code)] // 批次 2「档位补齐」使用
+    pub fn needs_sharper(&self, need_px: u32) -> bool {
+        pick_denom(self.pixel_size.0, need_px) < self.denom
+    }
 }
 
-/// 解码整张图片
-///
-/// 阻塞调用，必须放在后台线程执行。
-pub fn load(path: &Path) -> Result<LoadedImage, String> {
-    let started = std::time::Instant::now();
-    let reader = image::ImageReader::open(path)
-        .map_err(|err| format!("无法打开文件：{err}"))?
-        .with_guessed_format()
-        .map_err(|err| format!("无法识别格式：{err}"))?;
-
-    let decoded = reader.decode().map_err(|err| format!("解码失败：{err}"))?;
-    let mut rgba = decoded.to_rgba8();
-    let pixel_size = rgba.dimensions();
-
-    if pixel_size.0 == 0 || pixel_size.1 == 0 {
-        return Err("图片尺寸为 0".into());
+/// 用预览图构造可上屏对象
+pub fn from_preview(path: PathBuf, display: (u32, u32), preview: Preview) -> LoadedImage {
+    LoadedImage {
+        path,
+        image: Arc::new(RenderImage::new(vec![image::Frame::new(preview.buffer)])),
+        pixel_size: display,
+        denom: preview.denom,
     }
-
-    // gpui 的 RenderImage 按 BGRA 上传纹理，image 解码结果是 RGBA
-    for pixel in rgba.chunks_exact_mut(4) {
-        pixel.swap(0, 2);
-    }
-
-    eprintln!(
-        "[SPIKE] decoded {} in {} ms ({}×{})",
-        path.display(),
-        started.elapsed().as_millis(),
-        pixel_size.0,
-        pixel_size.1
-    );
-
-    Ok(LoadedImage {
-        path: path.to_path_buf(),
-        image: Arc::new(RenderImage::new(vec![image::Frame::new(rgba)])),
-        pixel_size,
-    })
 }
 
 /// 缩放方式

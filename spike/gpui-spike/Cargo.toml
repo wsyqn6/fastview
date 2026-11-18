@@ -26,6 +26,12 @@ windows-sys = { version = "0.59", features = [
     "Win32_Graphics_Dwm",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# WIC 缩放解码（DCT 1/2ⁿ），windows-sys 的绑定不够用
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+] }
 
 # spike 只验证能力，不做体积优化
 [profile.release]
