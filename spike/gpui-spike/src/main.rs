@@ -127,6 +127,10 @@ struct Spike {
     error: Option<String>,
     /// 加载序号：后发起的请求覆盖先前的，避免旧结果回写
     load_id: u64,
+    /// 正在补的更清晰档位（1/denom），None 表示空闲
+    sharpen: Option<u32>,
+    /// 补过但失败的档位，避免每帧重试
+    sharpen_failed: Option<u32>,
     /// 拖拽平移的上一帧位置
     drag_last: Option<Point<gpui::Pixels>>,
     /// 键盘快捷键
@@ -776,6 +780,8 @@ impl Spike {
         let load_id = self.load_id;
         self.loading = true;
         self.error = None;
+        self.sharpen = None;
+        self.sharpen_failed = None;
 
         // 首帧按视口宽度选档：能覆盖视口即可，不必解全图
         let view_width: f32 = Self::view_size(window).width.into();
@@ -796,7 +802,7 @@ impl Spike {
                 })
                 .await;
 
-            this.update(cx, |this, cx| {
+            this.update_in(cx, |this, window, cx| {
                 // 已被更新的请求取代
                 if this.load_id != load_id {
                     return;
@@ -820,13 +826,105 @@ impl Spike {
                             preview.height(),
                             preview.byte_len() as f64 / 1_048_576.0
                         );
-                        this.image = Some(viewer::from_preview(task_path, display, preview));
                         this.view = viewer::ViewState::default();
                         this.error = None;
+                        this.replace_image(
+                            window,
+                            viewer::from_preview(task_path, display, preview),
+                            cx,
+                        );
                     }
-                    Err(message) => this.error = Some(message),
+                    Err(message) => {
+                        this.error = Some(message);
+                        cx.notify();
+                    }
                 }
-                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 换图时释放旧纹理：gpui 不会随 `RenderImage` 销毁自动回收 atlas
+    fn replace_image(
+        &mut self,
+        window: &mut Window,
+        next: viewer::LoadedImage,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(old) = self.image.replace(next) {
+            let _ = window.drop_image(old.image);
+        }
+        cx.notify();
+    }
+
+    /// 当前档位不足以覆盖显示尺寸时，补一张更清晰的
+    ///
+    /// 触发点在 `render`：窗口缩放、全屏、模式切换、滚轮缩放都会反映到 `scale()` 上，
+    /// 不必在每个入口分别调用。`sharpen` 记录正在解的档位，避免重复提交。
+    fn schedule_sharpen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(image) = self.image.as_ref() else {
+            return;
+        };
+        let view = Self::view_size(window);
+        let base = image.logical_size(window.scale_factor());
+        let zoom = self.view.scale(view, base);
+        let need_px = (image.pixel_size.0 as f32 * zoom).round().max(1.0) as u32;
+
+        if !image.needs_sharper(need_px) {
+            return;
+        }
+        let want = decode::pick_denom(image.pixel_size.0, need_px);
+        if self.sharpen == Some(want) || self.sharpen_failed == Some(want) {
+            return;
+        }
+
+        self.sharpen = Some(want);
+        let path = image.path.clone();
+        let load_id = self.load_id;
+        eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
+
+        cx.spawn(async move |this, cx| {
+            let bg_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let started = Instant::now();
+                    let meta = decode::probe(&bg_path)?;
+                    let preview = decode::load_preview(&bg_path, &meta, need_px)?;
+                    Ok::<_, String>((meta, preview, started.elapsed()))
+                })
+                .await;
+
+            this.update_in(cx, |this, window, cx| {
+                // 已切到别的图，丢弃结果（此时纹理尚未上屏，无需回收）
+                if this.load_id != load_id {
+                    return;
+                }
+                this.sharpen = None;
+                match result {
+                    Ok((meta, preview, elapsed)) => {
+                        eprintln!(
+                            "[SPIKE] sharpened to 1/{} in {} ms, texture {}x{} {:.2} MB",
+                            preview.denom,
+                            elapsed.as_millis(),
+                            preview.width(),
+                            preview.height(),
+                            preview.byte_len() as f64 / 1_048_576.0
+                        );
+                        let display = meta.display_size();
+                        this.replace_image(
+                            window,
+                            viewer::from_preview(path, display, preview),
+                            cx,
+                        );
+                    }
+                    // 补档失败保持原图，不打扰用户；记下档位避免每帧重试
+                    Err(_) => {
+                        this.sharpen_failed = Some(want);
+                        cx.notify();
+                    }
+                }
             })
             .ok();
         })
@@ -1178,6 +1276,9 @@ impl Render for Spike {
             self.refresh_window_frame(window, cx);
         }
 
+        // 缩放/窗口尺寸变化后，当前档位可能已不够清晰
+        self.schedule_sharpen(window, cx);
+
         // 系统深浅色切换后换一套配色，并把 DWM 边框色同步到新的标题栏底色
         if self._appearance_sub.is_none() {
             self._appearance_sub = Some(cx.observe_window_appearance(window, |this, window, cx| {
@@ -1312,6 +1413,8 @@ fn main() {
                     loading: false,
                     error: None,
                     load_id: 0,
+                    sharpen: None,
+                    sharpen_failed: None,
                     drag_last: None,
                     focus_handle,
                     window_state: (false, false),
