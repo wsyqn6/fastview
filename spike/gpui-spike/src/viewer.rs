@@ -39,14 +39,10 @@ impl LoadedImage {
     }
 
     pub fn file_name(&self) -> String {
-        self.path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.path.display().to_string())
+        crate::folder::file_name(&self.path)
     }
 
     /// 当前纹理是否已不足以覆盖 `need_px`（需要补更清晰的一档）
-    #[allow(dead_code)] // 批次 2「档位补齐」使用
     pub fn needs_sharper(&self, need_px: u32) -> bool {
         pick_denom(self.pixel_size.0, need_px) < self.denom
     }
