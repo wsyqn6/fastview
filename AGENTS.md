@@ -46,7 +46,8 @@
 - gpui 窗口走 DirectComposition（`WS_EX_NOREDIRECTIONBITMAP`），此模式下：
   - ✅ Mica / MicaAlt / 亚克力 / 透明：`WindowBackgroundAppearance` 真正生效（DWM 材质）；
   - ❌ Win32 HMENU 菜单条（`SetMenu`）**装得上但画不出来**，客户区会被挤压而已；
-  - ✅ `TrackPopupMenuEx` 原生下拉菜单正常（独立 popup 窗口，不受限制）。
+  - ✅ `TrackPopupMenuEx` 原生下拉正常（独立 popup 窗口），但它会跑自己的模态消息循环，阻塞 gpui；
+  - ❌ `WindowKind::AnchoredPopup`：gpui 1.28 的 Windows 后端**未实现**，直接返回 `PopupNotSupportedError`。
 - 关掉 DComp（`GPUI_DISABLE_DIRECT_COMPOSITION=1`）菜单条恢复，但 Mica 变纯黑 —— **材质与系统菜单条互斥**。
 - `WindowBackgroundAppearance::Transparent` 在 Windows 上透出的是**桌面壁纸**，不是下层窗口内容。
 - egui 侧可用 `eframe::Frame` 的 `HasWindowHandle` 直接取 HWND 做原生扩展。
@@ -62,12 +63,13 @@
 - 命中盒需要元素有显式 `.id()`，否则 `window_control_area` 不生效。
 - 窗口控制图标**全部用几何图形自绘**（横线 / 方框 / 双框 / 两条对角线），统一 `Path` 填充 + 1px 线宽，不用字体：`Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框；文本 `×` 与几何线条粗细不一致。
 - 标题栏与主体都**不透明实色**，只靠底色明度区分，不加 1px 分隔线（参考 Windows Terminal / VS Code）；主体必须完全不透明（图片取色环境不能受桌面影响），不使用 Mica/亚克力材质。
-- 菜单入口自绘、下拉用 `TrackPopupMenuEx`，命令回到 app 层统一分发。
+- 菜单入口与下拉**都在窗口内自绘**：下拉是一层全窗遮罩（负责关闭/跟随切换）+ 面板，复用同一套配色、字号与圆角；不用 `SetMenu`，也不用 `TrackPopupMenuEx`（模态循环会阻断 gpui 事件）。
 
 ## ⌨️ 快捷键
 - `←/→` 上一张/下一张 | `+/-` 缩放 | `0/1/2` 适应/原始/填充
 - `R`/`Shift+R` 旋转 | `F` 全屏 | `V` 无边框 | `S` 状态栏 | `T` 缩略图
 - `Space` 按住拖动 | `H`/`?` 帮助
+- `Alt+F/V/S/H` 展开菜单（AltGr 不算）；菜单展开后直接按 `O/X/0/1/2/U/K/A` 执行，`↑↓←→` 移动、`Enter` 执行、`Esc` 收起
 
 ## 📜 编码规范
 

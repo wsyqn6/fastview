@@ -24,7 +24,6 @@ image = { version = "0.25", default-features = false, features = [
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
-    "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

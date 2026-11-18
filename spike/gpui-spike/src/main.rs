@@ -3,7 +3,7 @@
 //! 已落地的 Windows 体验：
 //! 1. 现代窗口 UI：自绘标题栏，菜单与窗口按钮都在标题栏内，不额外占一行（同 VS Code），
 //!    并保留 DWM 原生动画、拖动分屏、贴靠布局；
-//! 2. 菜单：自绘入口 + `TrackPopupMenuEx` 原生下拉，命令回到 gpui 处理；
+//! 2. 菜单：入口与下拉都在窗口内自绘，和标题栏共用同一套配色与字号；
 //! 3. 图片查看：整图解码 → `RenderImage` → 适应/原始/填充、滚轮缩放、拖拽平移。
 //!
 //! 分块渲染与缓存尚未接入，目前用来测量整图链路的耗时与内存。
@@ -14,13 +14,15 @@ mod viewer;
 #[cfg(windows)]
 mod win;
 
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Context, Div, FocusHandle, Hsla, KeyDownEvent,
-    MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, Path, PathPromptOptions, Pixels,
-    Point, ScrollDelta, ScrollEvent, Size, Subscription, TitlebarOptions, Window, WindowAppearance,
+    AnyElement, App, Bounds, BoxShadow, Context, Div, FocusHandle, Hsla, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, ObjectFit, Path, PathPromptOptions, Pixels, Point, ScrollDelta,
+    ScrollEvent, Size, Subscription, TitlebarOptions, Window, WindowAppearance,
     WindowBackgroundAppearance, WindowBounds, WindowControlArea, WindowOptions, canvas, div, hsla,
     img, point, prelude::*, px, rgb, size,
 };
@@ -34,6 +36,8 @@ const ICON_SIZE: f32 = 10.0;
 /// 关闭按钮的红色（Win11 原生值）
 const CLOSE_HOVER: u32 = 0xc42b1c;
 const CLOSE_ACTIVE: u32 = 0xb0271a;
+/// 下拉菜单面板宽度：容纳最长标签 + 右对齐的快捷键列
+const MENU_WIDTH: f32 = 232.0;
 
 /// 跟随系统深浅色的配色
 ///
@@ -52,6 +56,9 @@ struct Palette {
     /// 浮在图片上的卡片（状态条）
     card_bg: Hsla,
     card_border: Hsla,
+    /// 下拉菜单面板：不透明，避免透出图片干扰阅读
+    menu_bg: Hsla,
+    menu_border: Hsla,
     hover: Hsla,
     active: Hsla,
 }
@@ -73,6 +80,8 @@ impl Palette {
                 content_bg: rgb(0xf7_f7_f7).into(),
                 card_bg: rgb(0xff_ff_ff).opacity(0.88).into(),
                 card_border: hsla(0.0, 0.0, 0.0, 0.14),
+                menu_bg: rgb(0xff_ff_ff).into(),
+                menu_border: hsla(0.0, 0.0, 0.0, 0.12),
                 hover: hsla(0.0, 0.0, 0.0, 0.06),
                 active: hsla(0.0, 0.0, 0.0, 0.10),
             }
@@ -86,6 +95,8 @@ impl Palette {
                 content_bg: rgb(0x18_18_18).into(),
                 card_bg: rgb(0x2e_2e_2e).opacity(0.90).into(),
                 card_border: hsla(0.0, 0.0, 1.0, 0.14),
+                menu_bg: rgb(0x2b_2b_2b).into(),
+                menu_border: hsla(0.0, 0.0, 1.0, 0.10),
                 hover: hsla(0.0, 0.0, 1.0, 0.08),
                 active: hsla(0.0, 0.0, 1.0, 0.12),
             }
@@ -99,7 +110,7 @@ impl Palette {
 }
 
 struct Spike {
-    /// 原生 HWND（0 表示不可用），用于弹出系统菜单
+    /// 原生 HWND（0 表示不可用），用于设置 DWM 边框 / 圆角
     hwnd: isize,
     started_at: Instant,
     first_frame_logged: bool,
@@ -120,6 +131,14 @@ struct Spike {
     focus_handle: FocusHandle,
     /// 上一次的窗口状态（最大化、全屏）：变化后 DWM 会重算框架，需要重设边框
     window_state: (bool, bool),
+    /// 当前展开的顶层菜单（索引对应 `menu::MENUS`）
+    open_menu: Option<usize>,
+    /// 下拉里键盘选中的条目（`spec.items` 的索引）
+    menu_selected: Option<usize>,
+    /// 顶层菜单项在窗口坐标里的位置（prepaint 每帧更新，用于定位下拉与切换）
+    menu_rects: Rc<RefCell<Vec<Bounds<Pixels>>>>,
+    /// 窗口失焦时收起菜单（原生菜单同行为）
+    _activation_sub: Option<Subscription>,
 }
 
 /// 窗口控制图标类型
@@ -166,6 +185,15 @@ fn push_stroke_rect(path: &mut Path<Pixels>, left: f32, top: f32, right: f32, bo
     push_stroke(path, point(px(right), px(top)), point(px(right), px(bottom)), width);
     push_stroke(path, point(px(right), px(bottom)), point(px(left), px(bottom)), width);
     push_stroke(path, point(px(left), px(bottom)), point(px(left), px(top)), width);
+}
+
+/// 只取单字符键，用来区分助记符与 `f11` / `space` 这类多字符键名
+fn single_char(key: &str) -> Option<char> {
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => Some(c),
+        _ => None,
+    }
 }
 
 /// 在给定中心绘制图标
@@ -297,7 +325,6 @@ impl Spike {
         let palette = Palette::for_appearance(window.appearance());
 
         let mut bar = div()
-            .id("titlebar")
             .flex()
             .flex_row()
             .items_center()
@@ -313,26 +340,41 @@ impl Spike {
                     .window_control_area(WindowControlArea::Drag),
             );
 
+        // 菜单项单独包一层：`on_children_prepainted` 的索引与 `MENUS` 一一对应，
+        // 不受标题栏其它子元素（留白、窗口按钮）的数量与顺序影响
         #[cfg(windows)]
-        for (index, spec) in menu::MENUS.iter().enumerate() {
-            bar = bar.child(
-                div()
-                    .id(("top-menu", index))
-                    .h(px(24.0))
-                    .px(px(10.0))
-                    .flex()
-                    .items_center()
-                    .rounded(px(4.0))
-                    .text_size(px(12.0))
-                    .text_color(palette.text)
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .hover(move |style| style.bg(palette.hover))
-                    .active(move |style| style.bg(palette.active))
-                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                        this.open_menu(index, event, window, cx);
-                    }))
-                    .child(spec.title),
-            );
+        {
+            let mut menus = div().flex().flex_row().items_center();
+            for (index, spec) in menu::MENUS.iter().enumerate() {
+                let open = self.open_menu == Some(index);
+                menus = menus.child(
+                    div()
+                        .id(("top-menu", index))
+                        .h(px(24.0))
+                        .px(px(10.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .text_size(px(12.0))
+                        .text_color(palette.text)
+                        .when(open, |this| this.bg(palette.active))
+                        .when(!open, |this| {
+                            this.hover(move |style| style.bg(palette.hover))
+                                .active(move |style| style.bg(palette.active))
+                        })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, window, cx| {
+                                this.press_menu(index, window, cx);
+                            }),
+                        )
+                        .child(menu::label_with_mnemonic(spec.title, spec.mnemonic)),
+                );
+            }
+            bar = bar.child(menus.on_children_prepainted({
+                let rects = self.menu_rects.clone();
+                move |bounds, _, _| *rects.borrow_mut() = bounds
+            }));
         }
 
         // 空白区即拖拽区：拖动分屏、双击最大化都交给系统（HTCAPTION）
@@ -386,56 +428,260 @@ impl Spike {
         .into_any_element()
     }
 
-    /// 弹出原生下拉菜单（DComp 下唯一可用的系统菜单方案）
+    /// Alt+助记符：切换顶层菜单；未命中则收起已展开的菜单（同原生行为）
     #[cfg(windows)]
-    fn open_menu(
-        &mut self,
-        index: usize,
-        event: &ClickEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let scale = window.scale_factor();
-        let position = event.position();
-        let x: f32 = position.x.into();
-        // ClientToScreen 按物理像素计算，x 与 y 都要乘缩放比
-        self.pop_menu_at(
-            index,
-            x * scale,
-            TITLEBAR_HEIGHT * scale,
-            window,
-            cx,
-        );
+    fn press_mnemonic(&mut self, key: char, window: &mut Window, cx: &mut Context<Self>) {
+        match menu::menu_by_mnemonic(key) {
+            Some(index) => self.press_menu(index, window, cx),
+            None => {
+                if self.open_menu.take().is_some() {
+                    self.menu_selected = None;
+                    cx.notify();
+                }
+            }
+        }
     }
 
-    /// 在客户区 (x, y) 处为第 index 个菜单弹出原生下拉（物理像素）
+    /// 点击 / 再次点击顶层菜单：展开、收起，或执行顶层命令按钮
     #[cfg(windows)]
-    fn pop_menu_at(
-        &mut self,
-        index: usize,
-        x: f32,
-        y: f32,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn press_menu(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(spec) = menu::MENUS.get(index) else {
             return;
         };
 
         // 顶层命令按钮（无下拉）直接执行
         if spec.items.is_empty() {
+            self.open_menu = None;
             self.dispatch(menu::Cmd::Settings, window, cx);
             return;
         }
-        if self.hwnd == 0 {
+
+        self.open_menu = if self.open_menu == Some(index) {
+            None
+        } else {
+            Some(index)
+        };
+        self.menu_selected = None;
+        // 让 Esc 等按键事件仍然送到本窗口
+        self.focus_handle.focus(window, cx);
+        cx.notify();
+    }
+
+    /// 窗口坐标落在哪个顶层菜单上
+    #[cfg(windows)]
+    fn menu_at(&self, position: Point<Pixels>) -> Option<usize> {
+        let rects = self.menu_rects.borrow();
+        menu::MENUS.iter().enumerate().find_map(|(index, _)| {
+            let rect = rects.get(index)?;
+            rect.contains(&position).then_some(index)
+        })
+    }
+
+    /// 菜单展开时，鼠标滑到别的顶层菜单就跟着切换（同系统菜单行为）
+    #[cfg(windows)]
+    fn hover_menu_switch(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(index) = self.menu_at(position) else {
+            return;
+        };
+        if self.open_menu == Some(index) || menu::MENUS[index].items.is_empty() {
+            return;
+        }
+        self.open_menu = Some(index);
+        self.menu_selected = None;
+        cx.notify();
+    }
+
+    /// 上下键在可执行条目之间移动（跳过分隔线）
+    #[cfg(windows)]
+    fn move_menu_selection(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(spec) = self.open_menu.and_then(|index| menu::MENUS.get(index)) else {
+            return;
+        };
+        let commands: Vec<usize> = spec
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| matches!(item, menu::MenuItem::Command { .. }))
+            .map(|(index, _)| index)
+            .collect();
+        if commands.is_empty() {
             return;
         }
 
-        if let Some(cmd) =
-            menu::popup_at_client(self.hwnd as *mut core::ffi::c_void, x, y, spec.items)
+        let next = match self
+            .menu_selected
+            .and_then(|selected| commands.iter().position(|index| *index == selected))
         {
-            self.dispatch(cmd, window, cx);
+            Some(position) if forward => commands[(position + 1) % commands.len()],
+            Some(position) => commands[(position + commands.len() - 1) % commands.len()],
+            None if forward => commands[0],
+            None => commands[commands.len() - 1],
+        };
+        self.menu_selected = Some(next);
+        cx.notify();
+    }
+
+    /// 左右键切换顶层菜单（跳过纯命令按钮）
+    #[cfg(windows)]
+    fn switch_menu(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let Some(current) = self.open_menu else {
+            return;
+        };
+        let count = menu::MENUS.len();
+        for step in 1..=count {
+            let index = if forward {
+                (current + step) % count
+            } else {
+                (current + count - step) % count
+            };
+            if !menu::MENUS[index].items.is_empty() {
+                self.open_menu = Some(index);
+                self.menu_selected = None;
+                cx.notify();
+                return;
+            }
         }
+    }
+
+    /// 当前键盘选中的命令
+    #[cfg(windows)]
+    fn selected_cmd(&self) -> Option<menu::Cmd> {
+        let spec = self.open_menu.and_then(|index| menu::MENUS.get(index))?;
+        match spec.items.get(self.menu_selected?) {
+            Some(menu::MenuItem::Command { cmd, .. }) => Some(*cmd),
+            _ => None,
+        }
+    }
+
+    /// 下拉菜单浮层：全窗遮罩负责关闭与切换，面板自绘
+    ///
+    /// 面板放在窗口内而不是单独的 popup 窗口：复用同一个 renderer / atlas，
+    /// 也省掉定位、失焦、多显示器翻转那一整套系统语义。
+    #[cfg(windows)]
+    fn render_menu_layer(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let index = self.open_menu?;
+        let spec = menu::MENUS.get(index)?;
+        let palette = Palette::for_appearance(window.appearance());
+
+        let window_width: f32 = window.viewport_size().width.into();
+        let item_x = self
+            .menu_rects
+            .borrow()
+            .get(index)
+            .map(|rect| f32::from(rect.origin.x))
+            .unwrap_or(8.0);
+        // 贴右边缘时往左收，保证面板完整落在窗口里
+        let panel_x = item_x.min((window_width - MENU_WIDTH - 8.0).max(8.0));
+
+        let backdrop = div()
+            .absolute()
+            .inset_0()
+            // 菜单打开期间挡住标题栏与内容区，避免误触窗口拖拽/查看器
+            .occlude()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                    // 点在顶层菜单上：切换/执行；点在别处：收起
+                    if let Some(index) = this.menu_at(event.position) {
+                        this.press_menu(index, window, cx);
+                    } else if this.open_menu.take().is_some() {
+                        cx.notify();
+                    }
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                this.hover_menu_switch(event.position, cx);
+            }))
+            .on_scroll(cx.listener(|this, _, _, cx| {
+                if this.open_menu.take().is_some() {
+                    cx.notify();
+                }
+            }));
+
+        let mut panel = div()
+            .absolute()
+            .left(px(panel_x))
+            .top(px(TITLEBAR_HEIGHT))
+            .w(px(MENU_WIDTH))
+            .flex()
+            .flex_col()
+            .p(px(4.0))
+            .rounded(px(8.0))
+            .bg(palette.menu_bg)
+            .border_1()
+            .border_color(palette.menu_border)
+            .shadow(vec![
+                BoxShadow::new(px(0.0), px(6.0), hsla(0.0, 0.0, 0.0, 0.22))
+                    .blur_radius(px(18.0))
+                    .spread_radius(px(-6.0)),
+                BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
+            ])
+            // 面板空白处也不要漏到遮罩上（否则点分隔线会关掉菜单）
+            .occlude();
+
+        for (item_index, item) in spec.items.iter().enumerate() {
+            match item {
+                menu::MenuItem::Separator => {
+                    panel = panel.child(
+                        div()
+                            .h(px(1.0))
+                            .mx(px(8.0))
+                            .my(px(4.0))
+                            .bg(palette.menu_border),
+                    );
+                }
+                menu::MenuItem::Command {
+                    label,
+                    shortcut,
+                    mnemonic,
+                    cmd,
+                } => {
+                    let cmd = *cmd;
+                    let selected = self.menu_selected == Some(item_index);
+                    let mut row = div()
+                        .id(("menu-row", item_index))
+                        .h(px(28.0))
+                        .px(px(8.0))
+                        .flex()
+                        .items_center()
+                        .rounded(px(4.0))
+                        .text_size(px(12.0))
+                        .text_color(palette.text)
+                        .when(selected, |this| this.bg(palette.active))
+                        .hover(move |style| style.bg(palette.hover))
+                        // 悬停同步选中项：此时按回车执行的就是鼠标指向的命令
+                        .on_mouse_move(cx.listener(move |this, _, _, cx| {
+                            if this.menu_selected != Some(item_index) {
+                                this.menu_selected = Some(item_index);
+                                cx.notify();
+                            }
+                        }))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.dispatch(cmd, window, cx);
+                        }))
+                        .child(menu::label_with_mnemonic(label, *mnemonic));
+
+                    if !shortcut.is_empty() {
+                        row = row.child(div().flex_1()).child(
+                            div()
+                                .text_size(px(11.0))
+                                .text_color(palette.text_muted)
+                                .child(*shortcut),
+                        );
+                    }
+                    panel = panel.child(row);
+                }
+            }
+        }
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(backdrop)
+                .child(panel)
+                .into_any_element(),
+        )
     }
 
     /// 首帧 / 最大化 / 全屏后重新压一遍窗口边框
@@ -555,24 +801,87 @@ impl Spike {
     fn handle_key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
         let key = keystroke.key.as_str();
+        let modifiers = keystroke.modifiers;
 
-        if keystroke.modifiers.control && key.eq_ignore_ascii_case("o") {
+        // Alt+助记符直达顶层菜单（AltGr 是 Ctrl+Alt，必须排除）
+        if modifiers.alt && !modifiers.control && !modifiers.platform {
+            if let Some(mnemonic) = single_char(key) {
+                cx.stop_propagation();
+                self.press_mnemonic(mnemonic, window, cx);
+                return;
+            }
+        }
+
+        // 菜单打开时先由菜单消费键盘：Esc 关闭，方向键移动/切换，回车执行
+        if self.open_menu.is_some() {
+            match key {
+                "escape" => {
+                    self.open_menu = None;
+                    self.menu_selected = None;
+                    cx.notify();
+                    return;
+                }
+                "down" => {
+                    self.move_menu_selection(true, cx);
+                    return;
+                }
+                "up" => {
+                    self.move_menu_selection(false, cx);
+                    return;
+                }
+                "right" => {
+                    self.switch_menu(true, cx);
+                    return;
+                }
+                "left" => {
+                    self.switch_menu(false, cx);
+                    return;
+                }
+                "enter" => {
+                    if let Some(cmd) = self.selected_cmd() {
+                        self.dispatch(cmd, window, cx);
+                    }
+                    return;
+                }
+                // 菜单展开时直接按助记符执行（原生行为），否则收起后按普通快捷键处理
+                _ => {
+                    let cmd = single_char(key).and_then(|mnemonic| {
+                        let index = self.open_menu?;
+                        menu::cmd_by_mnemonic(index, mnemonic)
+                    });
+                    if let Some(cmd) = cmd {
+                        self.dispatch(cmd, window, cx);
+                        return;
+                    }
+                    self.open_menu = None;
+                    self.menu_selected = None;
+                    cx.notify();
+                }
+            }
+        }
+
+        // 单键快捷键只在无修饰键时生效，避免 Alt+数字 等被误当成缩放
+        let plain = !modifiers.control && !modifiers.alt && !modifiers.platform;
+
+        if key.eq_ignore_ascii_case("escape") {
+            if window.is_fullscreen() {
+                window.toggle_fullscreen();
+            }
+            return;
+        }
+
+        if modifiers.control && !modifiers.alt && key.eq_ignore_ascii_case("o") {
             #[cfg(windows)]
             self.open_file(cx);
             return;
         }
 
-        if key.eq_ignore_ascii_case("f11") {
+        if plain && key.eq_ignore_ascii_case("f11") {
             window.toggle_fullscreen();
             return;
         }
 
-        if key.eq_ignore_ascii_case("escape") && window.is_fullscreen() {
-            window.toggle_fullscreen();
-            return;
-        }
-
-        if self.image.is_none() {
+        if self.image.is_none() || !plain {
             return;
         }
 
@@ -592,6 +901,10 @@ impl Spike {
     fn dispatch(&mut self, cmd: menu::Cmd, window: &mut Window, cx: &mut Context<Self>) {
         use menu::Cmd;
 
+        // 任何命令都会收起下拉
+        self.open_menu = None;
+        self.menu_selected = None;
+
         match cmd {
             Cmd::Exit => {
                 window.defer(cx, |window, _| window.remove_window());
@@ -599,6 +912,7 @@ impl Spike {
             }
             Cmd::Open => {
                 self.open_file(cx);
+                cx.notify();
                 return;
             }
             Cmd::Fullscreen => {
@@ -829,11 +1143,23 @@ impl Render for Spike {
                 }));
         }
 
+        // 窗口失焦时收起菜单（系统菜单同行为）
+        if self._activation_sub.is_none() {
+            self._activation_sub =
+                Some(cx.observe_window_activation(window, |this, window, cx| {
+                    if !window.is_window_active() && this.open_menu.take().is_some() {
+                        cx.notify();
+                    }
+                }));
+        }
+
         let titlebar = self.render_titlebar(window, cx);
         let focus_handle = self.focus_handle.clone();
+        let menu_layer = self.render_menu_layer(window, cx);
 
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .track_focus(&focus_handle)
@@ -842,6 +1168,7 @@ impl Render for Spike {
             }))
             .child(titlebar)
             .child(self.render_viewer(window, cx))
+            .when_some(menu_layer, |this, layer| this.child(layer))
     }
 }
 
@@ -914,6 +1241,10 @@ fn main() {
                     drag_last: None,
                     focus_handle,
                     window_state: (false, false),
+                    open_menu: None,
+                    menu_selected: None,
+                    menu_rects: Rc::new(RefCell::new(Vec::new())),
+                    _activation_sub: None,
                 }
             });
 
