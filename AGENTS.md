@@ -60,6 +60,7 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - **L2 单线程串行**：整图解一次、按行写块、解完即释放；禁止并行多个全解码，峰值内存会翻倍。
 - **块尺寸 1024 且边缘块补齐**：gpui atlas 是 bucketed allocator，尺寸统一才能复用同一张纹理页。
 - **取消靠 generation id**：解码本身不可中断，切图时丢弃过期结果即可；并发上限 2。
+- **纹理必须显式回收**：gpui **不会**随 `RenderImage` 销毁清除 atlas（内无 drop 钩子），切图与补档都要 `window.drop_image()`，否则每切一次图就永久泄漏一张纹理。
 - **WIC 全尺寸解码比 zune-jpeg 慢**（71 vs 58 ms），因此 L1 走 WIC、L2 仍走 `image`。
 - **WIC 不做色彩管理**：32bppBGRA 输出是原始像素，ICC 需显式 `IWICColorTransform`（暂不做）。
 - **EXIF 方向**：WIC 不自动应用，`GetSize` 返回存储尺寸，方向需自己读 metadata 后旋转。
