@@ -784,9 +784,15 @@ impl Spike {
         self.sharpen_failed = None;
 
         // 首帧按视口宽度选档：能覆盖视口即可，不必解全图
-        let view_width: f32 = Self::view_size(window).width.into();
+        let view = Self::view_size(window);
+        let view_width: f32 = view.width.into();
+        let view_height: f32 = view.height.into();
         let need_px = (view_width * window.scale_factor()).round().max(1.0) as u32;
-        eprintln!("[SPIKE] loading {} (need {need_px}px)", path.display());
+        eprintln!(
+            "[SPIKE] loading {} (viewport {view_width}x{view_height} @{}x, need {need_px}px)",
+            path.display(),
+            window.scale_factor()
+        );
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -882,7 +888,8 @@ impl Spike {
         self.sharpen = Some(want);
         let path = image.path.clone();
         let load_id = self.load_id;
-        eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
+        let view_width: f32 = view.width.into();
+        eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px, viewport {view_width})");
 
         cx.spawn(async move |this, cx| {
             let bg_path = path.clone();

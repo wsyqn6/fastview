@@ -80,11 +80,16 @@ pub fn probe(path: &Path) -> Result<ImageMeta, String> {
 }
 
 /// 选出仍能覆盖 `need_px` 的最大分频（分频越大解码越快）
+///
+/// 允许 5% 的插值放大：相邻档位的像素量差 4 倍，为了 0.4% 的差距把整图
+/// 解一遍不划算（实测 1928px 需求会从 1/2 的 7.9 MB 跳到 1/1 的 31.6 MB）。
 pub fn pick_denom(width: u32, need_px: u32) -> u32 {
-    let need = need_px.max(1);
+    const UPSAMPLE_TOLERANCE: f32 = 1.05;
+
+    let need = need_px.max(1) as f32;
     let mut denom = MAX_DENOM;
     while denom > 1 {
-        if width / denom >= need {
+        if (width / denom) as f32 * UPSAMPLE_TOLERANCE >= need {
             return denom;
         }
         denom /= 2;
@@ -148,5 +153,31 @@ fn normalize(buffer: image::RgbaImage, orientation: Orientation) -> image::RgbaI
         Orientation::Rotate270 => imageops::rotate270(&buffer),
         Orientation::Rotate90FlipH => imageops::flip_horizontal(&imageops::rotate90(&buffer)),
         Orientation::Rotate270FlipH => imageops::flip_horizontal(&imageops::rotate270(&buffer)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_denom;
+
+    #[test]
+    fn picks_largest_denom_covering_viewport() {
+        assert_eq!(pick_denom(8000, 1440), 4);
+        assert_eq!(pick_denom(3840, 1440), 2);
+        assert_eq!(pick_denom(4000, 1440), 2);
+    }
+
+    #[test]
+    fn tolerance_avoids_denom_jump() {
+        // 实测：1928px 需求只比 1/2 档的 1920 多 8px，不值得为此解全图
+        assert_eq!(pick_denom(3840, 1928), 2);
+        // 超出 5% 容差则必须升档
+        assert_eq!(pick_denom(3840, 2100), 1);
+    }
+
+    #[test]
+    fn full_size_when_zoomed_in() {
+        assert_eq!(pick_denom(3840, 3840), 1);
+        assert_eq!(pick_denom(3840, 9999), 1);
     }
 }
