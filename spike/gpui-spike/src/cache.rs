@@ -12,13 +12,13 @@ use std::sync::Arc;
 
 use gpui::RenderImage;
 
-use crate::decode::ImageMeta;
+use crate::decode::{ImageMeta, Rotation};
 
 /// 单张图缓存的所有档位
 struct Cached {
     meta: ImageMeta,
-    /// denom（1/2ⁿ 的 n）-> 纹理
-    levels: HashMap<u32, Level>,
+    /// (用户旋转, denom) -> 纹理；不同角度各存一份
+    levels: HashMap<(Rotation, u32), Level>,
     last_used: u64,
 }
 
@@ -54,14 +54,14 @@ impl ImageCache {
     }
 
     /// 查指定档位；命中会刷新 LRU
-    pub fn get(&mut self, path: &Path, denom: u32) -> Option<Arc<RenderImage>> {
+    pub fn get(&mut self, path: &Path, rotation: Rotation, denom: u32) -> Option<Arc<RenderImage>> {
         self.tick += 1;
         let tick = self.tick;
         let cached = self.entries.get_mut(path)?;
         cached.last_used = tick;
         cached
             .levels
-            .get(&denom)
+            .get(&(rotation, denom))
             .map(|level| Arc::clone(&level.texture))
     }
 
@@ -72,6 +72,7 @@ impl ImageCache {
         &mut self,
         path: PathBuf,
         meta: ImageMeta,
+        rotation: Rotation,
         denom: u32,
         texture: Arc<RenderImage>,
         keep: &Path,
@@ -90,7 +91,10 @@ impl ImageCache {
 
         // 同档位替换：旧纹理也要交回去回收
         let mut dropped = Vec::new();
-        if let Some(old) = cached.levels.insert(denom, Level { texture, bytes }) {
+        if let Some(old) = cached
+            .levels
+            .insert((rotation, denom), Level { texture, bytes })
+        {
             self.bytes = self.bytes.saturating_sub(old.bytes);
             dropped.push(old.texture);
         }
@@ -164,13 +168,21 @@ mod tests {
         let path = PathBuf::from("a.jpg");
         let texture = texture(64, 64);
 
-        assert!(cache.get(&path, 2).is_none());
-        cache.insert(path.clone(), meta(256, 256), 2, Arc::clone(&texture), &path);
+        assert!(cache.get(&path, Rotation::None, 2).is_none());
+        cache.insert(
+            path.clone(),
+            meta(256, 256),
+            Rotation::None,
+            2,
+            Arc::clone(&texture),
+            &path,
+        );
 
-        let hit = cache.get(&path, 2).expect("应当命中");
+        let hit = cache.get(&path, Rotation::None, 2).expect("应当命中");
         assert!(Arc::ptr_eq(&hit, &texture));
-        // 其它档位互不影响
-        assert!(cache.get(&path, 1).is_none());
+        // 其它档位与角度互不影响
+        assert!(cache.get(&path, Rotation::None, 1).is_none());
+        assert!(cache.get(&path, Rotation::Cw90, 2).is_none());
     }
 
     #[test]
@@ -181,12 +193,19 @@ mod tests {
         let b = PathBuf::from("b.jpg");
         let c = PathBuf::from("c.jpg");
 
-        cache.insert(a.clone(), meta(64, 64), 1, texture(64, 64), &a);
-        cache.insert(b.clone(), meta(64, 64), 1, texture(64, 64), &b);
+        cache.insert(a.clone(), meta(64, 64), Rotation::None, 1, texture(64, 64), &a);
+        cache.insert(b.clone(), meta(64, 64), Rotation::None, 1, texture(64, 64), &b);
         // 摸一下 a，让 b 变成最久未用
-        assert!(cache.get(&a, 1).is_some());
+        assert!(cache.get(&a, Rotation::None, 1).is_some());
 
-        let dropped = cache.insert(c.clone(), meta(64, 64), 1, texture(64, 64), &c);
+        let dropped = cache.insert(
+            c.clone(),
+            meta(64, 64),
+            Rotation::None,
+            1,
+            texture(64, 64),
+            &c,
+        );
 
         assert_eq!(dropped.len(), 1, "应当淘汰一张");
         assert!(cache.contains(&a), "刚用过的 a 应保留");
@@ -203,6 +222,7 @@ mod tests {
         let dropped = cache.insert(
             current.clone(),
             meta(64, 64),
+            Rotation::None,
             1,
             texture(64, 64),
             &current,
@@ -219,8 +239,15 @@ mod tests {
         let path = PathBuf::from("a.jpg");
         let first = texture(32, 32);
 
-        cache.insert(path.clone(), meta(64, 64), 1, first, &path);
-        let dropped = cache.insert(path.clone(), meta(64, 64), 1, texture(32, 32), &path);
+        cache.insert(path.clone(), meta(64, 64), Rotation::None, 1, first, &path);
+        let dropped = cache.insert(
+            path.clone(),
+            meta(64, 64),
+            Rotation::None,
+            1,
+            texture(32, 32),
+            &path,
+        );
 
         assert_eq!(dropped.len(), 1, "旧纹理需要回收，否则 atlas 泄漏");
     }

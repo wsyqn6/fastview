@@ -15,6 +15,8 @@ pub enum Cmd {
     Fit,
     Original,
     Fill,
+    RotateCw,
+    RotateCcw,
     Fullscreen,
     Thumbnails,
     // 设置 / 帮助
@@ -87,6 +89,19 @@ pub const MENUS: &[MenuSpec] = &[
                 shortcut: "2",
                 mnemonic: '2',
                 cmd: Cmd::Fill,
+            },
+            Separator,
+            Command {
+                label: "顺时针旋转",
+                shortcut: "R",
+                mnemonic: 'R',
+                cmd: Cmd::RotateCw,
+            },
+            Command {
+                label: "逆时针旋转",
+                shortcut: "Shift+R",
+                mnemonic: 'N',
+                cmd: Cmd::RotateCcw,
             },
             Separator,
             Command {

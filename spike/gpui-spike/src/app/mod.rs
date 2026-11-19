@@ -65,6 +65,8 @@ pub struct Spike {
     error: Option<String>,
     /// 加载序号：后发起的请求覆盖先前的，避免旧结果回写
     load_id: u64,
+    /// 旋转序号：连续旋转时只保留最后一次的结果
+    rotate_id: u64,
     /// 正在补的更清晰档位（1/denom），None 表示空闲
     sharpen: Option<u32>,
     /// 补过但失败的档位，避免每帧重试
@@ -147,6 +149,7 @@ impl Spike {
             loading: false,
             error: None,
             load_id: 0,
+            rotate_id: 0,
             sharpen: None,
             sharpen_failed: None,
             folder: None,

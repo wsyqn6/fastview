@@ -16,6 +16,43 @@ use image::metadata::Orientation;
 /// WIC 支持的最大分频；JPEG 的 DCT 缩放只能是 1/2ⁿ
 const MAX_DENOM: u32 = 8;
 
+/// 用户旋转（顺时针），在 EXIF 方向归一之后应用
+///
+/// 与 EXIF 分开：EXIF 是图片自带属性，用户旋转只是当前查看状态，
+/// 因此旋转角要进缓存键，同一张图的不同角度各存一份纹理。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Rotation {
+    #[default]
+    None,
+    Cw90,
+    Cw180,
+    Cw270,
+}
+
+impl Rotation {
+    /// 是否交换宽高
+    pub fn swaps_axes(self) -> bool {
+        matches!(self, Self::Cw90 | Self::Cw270)
+    }
+
+    /// 一步旋转；`clockwise` 为 false 时逆时针
+    pub fn step(self, clockwise: bool) -> Self {
+        let turns = match self {
+            Self::None => 0,
+            Self::Cw90 => 1,
+            Self::Cw180 => 2,
+            Self::Cw270 => 3,
+        };
+        let turns = if clockwise { turns + 1 } else { turns + 3 } % 4;
+        match turns {
+            1 => Self::Cw90,
+            2 => Self::Cw180,
+            3 => Self::Cw270,
+            _ => Self::None,
+        }
+    }
+}
+
 /// 图片元信息（尺寸为「存储尺寸」，未应用方向）
 #[derive(Clone, Copy, Debug)]
 pub struct ImageMeta {
@@ -31,6 +68,16 @@ impl ImageMeta {
         } else {
             self.storage
         }
+    }
+}
+
+/// 应用 EXIF 方向与用户旋转后的显示尺寸
+pub fn display_size(meta: &ImageMeta, rotation: Rotation) -> (u32, u32) {
+    let (width, height) = meta.display_size();
+    if rotation.swaps_axes() {
+        (height, width)
+    } else {
+        (width, height)
     }
 }
 
@@ -97,12 +144,26 @@ pub fn pick_denom(width: u32, need_px: u32) -> u32 {
     1
 }
 
+/// 按显示宽度对应的源尺寸选档（EXIF 与用户旋转都可能交换宽高）
+pub fn pick_denom_for(meta: &ImageMeta, rotation: Rotation, need_px: u32) -> u32 {
+    let swaps = swaps_axes(meta.orientation) ^ rotation.swaps_axes();
+    pick_denom(
+        if swaps { meta.storage.1 } else { meta.storage.0 },
+        need_px,
+    )
+}
+
 /// 按目标宽度解码一张预览
 ///
 /// `need_px` 是希望覆盖的设备像素宽度；实际分辨率会吸附到 WIC 支持的分频。
-pub fn load_preview(path: &Path, meta: &ImageMeta, need_px: u32) -> Result<Preview, String> {
+pub fn load_preview(
+    path: &Path,
+    meta: &ImageMeta,
+    need_px: u32,
+    rotation: Rotation,
+) -> Result<Preview, String> {
     let (sw, sh) = meta.storage;
-    let denom = pick_denom(sw, need_px);
+    let denom = pick_denom_for(meta, rotation, need_px);
     let tw = (sw / denom).max(1);
     let th = (sh / denom).max(1);
 
@@ -121,8 +182,16 @@ pub fn load_preview(path: &Path, meta: &ImageMeta, need_px: u32) -> Result<Previ
 
     let buffer = image::RgbaImage::from_raw(width, height, bgra)
         .ok_or_else(|| "像素缓冲尺寸不匹配".to_string())?;
+    let buffer = normalize(buffer, meta.orientation);
+    // 用户旋转在 EXIF 归一之后做；imageops 的 rotate90 是顺时针
+    let buffer = match rotation {
+        Rotation::None => buffer,
+        Rotation::Cw90 => image::imageops::rotate90(&buffer),
+        Rotation::Cw180 => image::imageops::rotate180(&buffer),
+        Rotation::Cw270 => image::imageops::rotate270(&buffer),
+    };
     Ok(Preview {
-        buffer: normalize(buffer, meta.orientation),
+        buffer,
         denom,
         backend,
     })
@@ -158,7 +227,7 @@ fn normalize(buffer: image::RgbaImage, orientation: Orientation) -> image::RgbaI
 
 #[cfg(test)]
 mod tests {
-    use super::pick_denom;
+    use super::{ImageMeta, Rotation, pick_denom, pick_denom_for};
 
     #[test]
     fn picks_largest_denom_covering_viewport() {
@@ -179,5 +248,33 @@ mod tests {
     fn full_size_when_zoomed_in() {
         assert_eq!(pick_denom(3840, 3840), 1);
         assert_eq!(pick_denom(3840, 9999), 1);
+    }
+
+    #[test]
+    fn rotation_cycles_both_ways() {
+        assert_eq!(Rotation::None.step(true), Rotation::Cw90);
+        assert_eq!(Rotation::Cw90.step(true), Rotation::Cw180);
+        assert_eq!(Rotation::Cw180.step(true), Rotation::Cw270);
+        assert_eq!(Rotation::Cw270.step(true), Rotation::None);
+        assert_eq!(Rotation::None.step(false), Rotation::Cw270);
+        assert_eq!(Rotation::Cw270.step(false), Rotation::Cw180);
+    }
+
+    #[test]
+    fn quarter_turn_swaps_axes() {
+        assert!(!Rotation::None.swaps_axes());
+        assert!(Rotation::Cw90.swaps_axes());
+        assert!(!Rotation::Cw180.swaps_axes());
+        assert!(Rotation::Cw270.swaps_axes());
+    }
+
+    #[test]
+    fn quarter_turn_picks_denom_by_source_height() {
+        let meta = ImageMeta {
+            storage: (4000, 2000),
+            orientation: image::metadata::Orientation::NoTransforms,
+        };
+        assert_eq!(pick_denom_for(&meta, Rotation::None, 1000), 4);
+        assert_eq!(pick_denom_for(&meta, Rotation::Cw90, 1000), 2);
     }
 }

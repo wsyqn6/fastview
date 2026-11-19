@@ -154,6 +154,7 @@ impl Spike {
             "0" => self.set_mode(viewer::ViewMode::Fit, window),
             "1" => self.set_mode(viewer::ViewMode::Original, window),
             "2" => self.set_mode(viewer::ViewMode::Fill, window),
+            k if k.eq_ignore_ascii_case("r") => self.rotate(!modifiers.shift, window, cx),
             "+" | "=" => self.zoom_step(1.25, window),
             "-" | "_" => self.zoom_step(0.8, window),
             "t" => self.toggle_thumbs(cx),
@@ -210,6 +211,8 @@ impl Spike {
             Cmd::Fit => self.set_mode(viewer::ViewMode::Fit, window),
             Cmd::Original => self.set_mode(viewer::ViewMode::Original, window),
             Cmd::Fill => self.set_mode(viewer::ViewMode::Fill, window),
+            Cmd::RotateCw => self.rotate(true, window, cx),
+            Cmd::RotateCcw => self.rotate(false, window, cx),
             Cmd::Thumbnails => {
                 self.toggle_thumbs(cx);
                 return;

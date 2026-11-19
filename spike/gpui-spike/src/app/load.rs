@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use gpui::{Context, PathPromptOptions, RenderImage, Window};
 
 use super::Spike;
-use crate::decode::{self, ImageMeta, Preview};
+use crate::decode::{self, ImageMeta, Preview, Rotation};
 use crate::{folder, viewer};
 
 /// 后台 probe + 解码的结果
@@ -21,10 +21,14 @@ struct Decoded {
 }
 
 /// 统一的后台解码入口：probe 只读文件头，预览按需选档
-async fn decode_task(path: PathBuf, need_px: u32) -> Result<Decoded, String> {
+async fn decode_task(
+    path: PathBuf,
+    need_px: u32,
+    rotation: Rotation,
+) -> Result<Decoded, String> {
     let started = Instant::now();
     let meta = decode::probe(&path)?;
-    let preview = decode::load_preview(&path, &meta, need_px)?;
+    let preview = decode::load_preview(&path, &meta, need_px, rotation)?;
     Ok(Decoded {
         meta,
         preview,
@@ -69,8 +73,9 @@ impl Spike {
 
         // 缓存命中：连 probe 都省掉，直接换纹理上屏
         if let Some(meta) = self.cache.meta(&path) {
-            let denom = decode::pick_denom(meta.storage.0, need_px);
-            if let Some(texture) = self.cache.get(&path, denom) {
+            // 开新图一律回到 0°
+            let denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
+            if let Some(texture) = self.cache.get(&path, Rotation::None, denom) {
                 eprintln!(
                     "[SPIKE] {} hit cache 1/{denom} ({}x{})",
                     folder::file_name(&path),
@@ -79,7 +84,7 @@ impl Spike {
                 );
                 self.loading = false;
                 self.view = viewer::ViewState::default();
-                self.present(path, meta, denom, texture, window, cx);
+                self.present(path, meta, Rotation::None, denom, texture, window, cx);
                 self.prefetch_neighbors(window, cx);
                 return;
             }
@@ -96,7 +101,7 @@ impl Spike {
             let name = folder::file_name(&path);
             let result = cx
                 .background_executor()
-                .spawn(decode_task(path.clone(), need_px))
+                .spawn(decode_task(path.clone(), need_px, Rotation::None))
                 .await;
 
             this.update_in(cx, |this, window, cx| {
@@ -127,7 +132,7 @@ impl Spike {
                         this.error = None;
                         let denom = preview.denom;
                         let texture = viewer::texture(preview);
-                        this.present(path, meta, denom, texture, window, cx);
+                        this.present(path, meta, Rotation::None, denom, texture, window, cx);
                         this.prefetch_neighbors(window, cx);
                     }
                     Err(message) => {
@@ -152,6 +157,79 @@ impl Spike {
         self.open_path(path, window, cx);
     }
 
+    /// 旋转当前图片；切图时角度会重置为 0°
+    pub(super) fn rotate(&mut self, clockwise: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(current) = self.image.as_ref() else {
+            return;
+        };
+        let path = current.path.clone();
+        let rotation = current.rotation.step(clockwise);
+        if rotation == current.rotation {
+            return;
+        }
+        let Some(meta) = self.cache.meta(&path) else {
+            return;
+        };
+        self.touch_status(cx);
+
+        // 任何旋转都作废旧任务；连续按 R 时只保留最后一次
+        self.rotate_id = self.rotate_id.wrapping_add(1);
+        let rotate_id = self.rotate_id;
+
+        // 目标角度的选档可能和当前角度不同（90° 时源宽变成源高），
+        // 必须用同一个 need_px 算出的 denom 查缓存，否则来回旋转永远不命中。
+        let need_px = self.need_px(window);
+        let denom = decode::pick_denom_for(&meta, rotation, need_px);
+
+        // 命中缓存：直接换纹理。不能再走 present，否则同一个 Arc 会被当成旧档位回收
+        if let Some(texture) = self.cache.get(&path, rotation, denom) {
+            self.image = Some(viewer::LoadedImage {
+                path,
+                image: texture,
+                pixel_size: decode::display_size(&meta, rotation),
+                denom,
+                rotation,
+            });
+            self.view = viewer::ViewState::default();
+            cx.notify();
+            return;
+        }
+
+        let load_id = self.load_id;
+        let name = folder::file_name(&path);
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(decode_task(path.clone(), need_px, rotation))
+                .await;
+
+            this.update_in(cx, |this, window, cx| {
+                if this.rotate_id != rotate_id || this.load_id != load_id {
+                    return;
+                }
+                let Ok(Decoded {
+                    meta,
+                    preview,
+                    elapsed,
+                }) = result
+                else {
+                    return;
+                };
+                eprintln!(
+                    "[SPIKE] {name} rotated to {rotation:?} in {} ms",
+                    elapsed.as_millis()
+                );
+                let denom = preview.denom;
+                let texture = viewer::texture(preview);
+                this.view = viewer::ViewState::default();
+                this.present(path, meta, rotation, denom, texture, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// 上屏并写入缓存：`self.image` 与缓存持有同一个 `Arc`
     ///
     /// 纹理的回收责任从这里转到缓存：淘汰时才 `drop_image`，
@@ -160,15 +238,21 @@ impl Spike {
         &mut self,
         path: PathBuf,
         meta: ImageMeta,
+        rotation: Rotation,
         denom: u32,
         texture: Arc<RenderImage>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let dropped = self
-            .cache
-            .insert(path.clone(), meta, denom, Arc::clone(&texture), &path);
-        // 换图才重放状态徽标淡入；补清晰档位时不动
+        let dropped = self.cache.insert(
+            path.clone(),
+            meta,
+            rotation,
+            denom,
+            Arc::clone(&texture),
+            &path,
+        );
+        // 换图才重放状态徽标淡入；补清晰档位 / 旋转时不动
         let changed = self
             .image
             .as_ref()
@@ -176,8 +260,9 @@ impl Spike {
         self.image = Some(viewer::LoadedImage {
             path,
             image: texture,
-            pixel_size: meta.display_size(),
+            pixel_size: decode::display_size(&meta, rotation),
             denom,
+            rotation,
         });
         if changed {
             // 换图后重新显示状态栏，并重置自动淡出计时
@@ -216,7 +301,7 @@ impl Spike {
                 let started = Instant::now();
                 let result = cx
                     .background_executor()
-                    .spawn(decode_task(path.clone(), need_px))
+                    .spawn(decode_task(path.clone(), need_px, Rotation::None))
                     .await;
 
                 this.update_in(cx, |this, window, cx| {
@@ -236,7 +321,14 @@ impl Spike {
                         .map(|image| image.path.clone())
                         .unwrap_or_default();
 
-                    let dropped = this.cache.insert(path.clone(), meta, denom, texture, &keep);
+                    let dropped = this.cache.insert(
+                        path.clone(),
+                        meta,
+                        Rotation::None,
+                        denom,
+                        texture,
+                        &keep,
+                    );
                     for image in dropped {
                         let _ = window.drop_image(image);
                     }
@@ -277,13 +369,14 @@ impl Spike {
 
         self.sharpen = Some(want);
         let path = image.path.clone();
+        let rotation = image.rotation;
         let load_id = self.load_id;
         eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
 
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(decode_task(path.clone(), need_px))
+                .spawn(decode_task(path.clone(), need_px, rotation))
                 .await;
 
             this.update_in(cx, |this, window, cx| {
@@ -292,6 +385,14 @@ impl Spike {
                     return;
                 }
                 this.sharpen = None;
+                // 旋转后旧角度的补档结果不能覆盖新纹理
+                if !this
+                    .image
+                    .as_ref()
+                    .is_some_and(|image| image.path == path && image.rotation == rotation)
+                {
+                    return;
+                }
                 match result {
                     Ok(Decoded {
                         meta,
@@ -308,7 +409,7 @@ impl Spike {
                         );
                         let denom = preview.denom;
                         let texture = viewer::texture(preview);
-                        this.present(path, meta, denom, texture, window, cx);
+                        this.present(path, meta, rotation, denom, texture, window, cx);
                     }
                     // 补档失败保持原图，不打扰用户；记下档位避免每帧重试
                     Err(_) => {

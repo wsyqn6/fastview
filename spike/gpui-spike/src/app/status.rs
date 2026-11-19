@@ -12,6 +12,7 @@ use gpui::{
 
 use super::Spike;
 use super::theme::{Palette, RADIUS_PANEL};
+use crate::decode::Rotation;
 use crate::viewer;
 
 /// 无操作多久后开始淡出（信息变多后给足阅读时间）
@@ -152,6 +153,13 @@ impl Spike {
                 .text_color(palette.text)
                 .child(format!("{} × {}", image.pixel_size.0, image.pixel_size.1)),
         );
+        if image.rotation != Rotation::None {
+            row = row.child(
+                div()
+                    .text_color(palette.text_muted)
+                    .child(format!("↻ {}°", rotation_degrees(image.rotation))),
+            );
+        }
         if let Some(mode) = zoom_mode_label(self.view.mode) {
             row = row.child(div().text_color(palette.text_muted).child(mode));
         }
@@ -187,6 +195,16 @@ impl Spike {
                     ),
             )
             .into_any_element()
+    }
+}
+
+/// 只显示用户旋转角，不含已烘进像素的 EXIF 方向
+fn rotation_degrees(rotation: Rotation) -> u32 {
+    match rotation {
+        Rotation::None => 0,
+        Rotation::Cw90 => 90,
+        Rotation::Cw180 => 180,
+        Rotation::Cw270 => 270,
     }
 }
 

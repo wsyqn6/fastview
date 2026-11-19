@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use gpui::{Bounds, Pixels, Point, RenderImage, Size, point, px, size};
 
-use crate::decode::{Preview, pick_denom};
+use crate::decode::{Preview, Rotation, pick_denom};
 
 /// 缩放上下限（逻辑像素 / 图片逻辑像素）
 const MIN_ZOOM: f32 = 0.02;
@@ -23,10 +23,12 @@ const KEEP_VISIBLE: f32 = 24.0;
 pub struct LoadedImage {
     pub path: PathBuf,
     pub image: Arc<RenderImage>,
-    /// 原始尺寸（已应用 EXIF 方向，设备像素）
+    /// 显示尺寸（已应用 EXIF 方向与用户旋转，设备像素）
     pub pixel_size: (u32, u32),
     /// 当前纹理相对原始尺寸的分频（1/denom）
     pub denom: u32,
+    /// 当前纹理已应用的用户旋转（切图时重置）
+    pub rotation: Rotation,
 }
 
 impl LoadedImage {
