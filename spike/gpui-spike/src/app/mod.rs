@@ -17,6 +17,7 @@ mod menu_layer;
 mod pane;
 mod settings;
 mod settings_panel;
+mod status;
 pub(crate) mod theme;
 mod thumbs;
 mod titlebar;
@@ -113,8 +114,16 @@ pub struct Spike {
     drop_hover: bool,
     /// 菜单展开序号：变化时重放淡入动画
     menu_seq: u64,
-    /// 切图序号：变化时重放状态徽标淡入
-    badge_seq: u64,
+    /// 状态栏是否常显（`S` 切换）；否则无操作后自动淡出
+    status_pinned: bool,
+    /// 状态栏当前目标可见性
+    status_shown: bool,
+    /// 状态栏动画序号：显隐切换时自增，用于重放动画
+    status_seq: u64,
+    /// 状态栏自动淡出的截止时间
+    status_deadline: Option<Instant>,
+    /// 状态栏定时器代数：作废旧的等待任务
+    status_timer_gen: u64,
 }
 
 impl Spike {
@@ -160,7 +169,11 @@ impl Spike {
             accent,
             drop_hover: false,
             menu_seq: 0,
-            badge_seq: 0,
+            status_pinned: false,
+            status_shown: true,
+            status_seq: 0,
+            status_deadline: None,
+            status_timer_gen: 0,
         }
     }
 
@@ -376,6 +389,7 @@ impl Render for Spike {
             }))
             // 透明度滑杆的拖动由根元素接管：鼠标移出滑杆也不会断
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                this.touch_status(cx);
                 if this.settings_drag && event.dragging() {
                     this.set_opacity_at(event.position, window, cx);
                 }

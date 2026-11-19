@@ -180,7 +180,8 @@ impl Spike {
             denom,
         });
         if changed {
-            self.badge_seq = self.badge_seq.wrapping_add(1);
+            // 换图后重新显示状态栏，并重置自动淡出计时
+            self.touch_status(cx);
         }
         for image in dropped {
             let _ = window.drop_image(image);

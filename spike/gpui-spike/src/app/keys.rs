@@ -74,6 +74,9 @@ impl Spike {
         let key = keystroke.key.as_str();
         let modifiers = keystroke.modifiers;
 
+        // 任何按键都算交互：状态栏重新出现并重置淡出计时
+        self.touch_status(cx);
+
         // 设置面板：Ctrl+, 开关，Esc 关闭，其余按键不落到查看器
         if modifiers.control && !modifiers.alt && (key == "," || key == "comma") {
             cx.stop_propagation();
@@ -135,6 +138,7 @@ impl Spike {
             "+" | "=" => self.zoom_step(1.25, window),
             "-" | "_" => self.zoom_step(0.8, window),
             "t" => self.toggle_thumbs(cx),
+            "s" => self.toggle_status_pin(cx),
             "left" => self.step_image(false, window, cx),
             "right" => self.step_image(true, window, cx),
             _ => return,

@@ -1,15 +1,12 @@
 //! 内容区：图片绘制与缩放 / 平移交互
 
-use std::time::Duration;
-
 use gpui::{
-    Animation, AnimationExt, AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ObjectFit, ScrollDelta, ScrollEvent, Size, Window, div, ease_out_quint, hsla, img, point,
-    prelude::*, px,
+    AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, ScrollDelta,
+    ScrollEvent, Size, Window, div, hsla, img, point, prelude::*, px,
 };
 
 use super::Spike;
-use super::theme::{Palette, RADIUS_PANEL, TITLEBAR_HEIGHT};
+use super::theme::{Palette, TITLEBAR_HEIGHT};
 use crate::viewer;
 
 impl Spike {
@@ -35,6 +32,7 @@ impl Spike {
                 }),
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                this.touch_status(cx);
                 if !event.dragging() {
                     this.drag_last = None;
                     return;
@@ -61,6 +59,7 @@ impl Spike {
                 if this.image.is_none() {
                     return;
                 }
+                this.touch_status(cx);
                 let view = this.view_size(window);
                 let base = this.base_size(window);
                 let dy = match event.delta {
@@ -81,7 +80,7 @@ impl Spike {
         if let Some(image) = &self.image {
             area = area
                 .child(self.render_image_layer(image, view, scale_factor))
-                .child(self.render_status_badge(image, view, scale_factor, &palette));
+                .child(self.render_status_bar(image, view, scale_factor, &palette));
         } else {
             area = area.child(self.render_placeholder(&palette));
         }
@@ -106,43 +105,6 @@ impl Spike {
             .w(bounds.size.width)
             .h(bounds.size.height)
             .child(img(image.image.clone()).object_fit(ObjectFit::Fill).size_full())
-            .into_any_element()
-    }
-
-    /// 左下角状态：尺寸与缩放百分比
-    fn render_status_badge(
-        &self,
-        image: &viewer::LoadedImage,
-        view: Size<gpui::Pixels>,
-        scale_factor: f32,
-        palette: &Palette,
-    ) -> AnyElement {
-        let base = image.logical_size(scale_factor);
-        let percent = self.view.percent(view, base);
-        let label = format!(
-            "{} × {}   {:.0}%",
-            image.pixel_size.0, image.pixel_size.1, percent
-        );
-
-        div()
-            .absolute()
-            .left(px(12.0))
-            .bottom(px(12.0))
-            .px(px(10.0))
-            .py(px(5.0))
-            .rounded(px(RADIUS_PANEL))
-            .bg(palette.card_bg)
-            .border_1()
-            .border_color(palette.card_border)
-            .text_size(px(12.0))
-            .text_color(palette.text_muted)
-            .child(label)
-            // 每次切图重放一次淡入
-            .with_animation(
-                ("status-badge", self.badge_seq),
-                Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()),
-                |badge, t| badge.opacity(t),
-            )
             .into_any_element()
     }
 
