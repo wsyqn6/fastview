@@ -168,12 +168,20 @@ impl Spike {
         let dropped = self
             .cache
             .insert(path.clone(), meta, denom, Arc::clone(&texture), &path);
+        // 换图才重放状态徽标淡入；补清晰档位时不动
+        let changed = self
+            .image
+            .as_ref()
+            .is_none_or(|current| current.path != path);
         self.image = Some(viewer::LoadedImage {
             path,
             image: texture,
             pixel_size: meta.display_size(),
             denom,
         });
+        if changed {
+            self.badge_seq = self.badge_seq.wrapping_add(1);
+        }
         for image in dropped {
             let _ = window.drop_image(image);
         }

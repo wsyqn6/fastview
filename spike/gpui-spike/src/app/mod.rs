@@ -3,8 +3,9 @@
 //! 这里只保留 `Spike` 的状态、构造和 `render` 骨架，具体实现按职责分在子模块：
 //!
 //! - `theme`：配色与界面尺寸
+//! - `settings`：配置文件读写
 //! - `widgets`：基础绘制件（窗口控制图标、窗口按钮、助记符文本）
-//! - `titlebar` / `menu_layer` / `pane` / `thumbs`：四块界面
+//! - `titlebar` / `menu_layer` / `pane` / `thumbs` / `settings_panel`：界面分块
 //! - `load`：图片加载、缓存与预取
 //! - `keys`：快捷键与菜单命令
 //! - `boot`：窗口创建与事件循环入口
@@ -14,6 +15,8 @@ mod keys;
 mod load;
 mod menu_layer;
 mod pane;
+mod settings;
+mod settings_panel;
 mod theme;
 mod thumbs;
 mod titlebar;
@@ -27,10 +30,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    Bounds, Context, FocusHandle, KeyDownEvent, ModifiersChangedEvent, Pixels, Point, RenderImage,
-    ScrollHandle, Size, Subscription, Window, div, prelude::*, px, size,
+    AnyElement, Bounds, Context, ExternalPaths, FileDropEvent, FocusHandle, KeyDownEvent,
+    ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, RenderImage, ScrollHandle,
+    Size, Subscription, Window, div, prelude::*, px, size,
 };
 
+use self::settings::Settings;
 use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
@@ -94,10 +99,31 @@ pub struct Spike {
     alt_held: bool,
     /// 窗口失焦时收起菜单（原生菜单同行为）
     _activation_sub: Option<Subscription>,
+    /// 用户配置：主题 / 材质 / 透明度
+    settings: Settings,
+    /// 设置面板是否展开
+    settings_open: bool,
+    /// 正在拖动透明度滑杆
+    settings_drag: bool,
+    /// 滑杆轨道的窗口坐标（prepaint 每帧更新）
+    slider_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// 系统强调色（`0xRRGGBB`）
+    accent: u32,
+    /// 有文件拖到窗口上：整窗高亮
+    drop_hover: bool,
+    /// 菜单展开序号：变化时重放淡入动画
+    menu_seq: u64,
+    /// 切图序号：变化时重放状态徽标淡入
+    badge_seq: u64,
 }
 
 impl Spike {
-    fn new(hwnd: isize, started_at: Instant, cx: &mut Context<Self>) -> Self {
+    fn new(hwnd: isize, started_at: Instant, settings: Settings, cx: &mut Context<Self>) -> Self {
+        #[cfg(windows)]
+        let accent = win::system_accent().unwrap_or(theme::DEFAULT_ACCENT);
+        #[cfg(not(windows))]
+        let accent = theme::DEFAULT_ACCENT;
+
         Self {
             hwnd,
             started_at,
@@ -127,6 +153,14 @@ impl Spike {
             menu_rects: Rc::new(RefCell::new(Vec::new())),
             alt_held: false,
             _activation_sub: None,
+            settings,
+            settings_open: false,
+            settings_drag: false,
+            slider_bounds: Rc::new(RefCell::new(None)),
+            accent,
+            drop_hover: false,
+            menu_seq: 0,
+            badge_seq: 0,
         }
     }
 
@@ -159,10 +193,10 @@ impl Spike {
         (width * window.scale_factor()).round().max(1.0) as u32
     }
 
-    /// 首帧日志 + 窗口状态变化时重设 DWM 边框
+    /// 首帧日志 + 窗口状态变化时重设窗口外观
     ///
-    /// 窗口真正显示之后 DWM 会重建一次框架，创建时设的边框颜色会被还原，
-    /// 表现就是标题栏顶部冒出一条 1px 亮线。
+    /// 窗口真正显示之后 DWM 会重建一次框架，创建时设的边框与材质会被还原，
+    /// 表现就是标题栏顶部冒出一条 1px 亮线、材质丢失。
     fn sync_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let first_frame = !self.first_frame_logged;
         if first_frame {
@@ -176,28 +210,78 @@ impl Spike {
         let state = (window.is_maximized(), window.is_fullscreen());
         if first_frame || self.window_state != state {
             self.window_state = state;
-            #[cfg(windows)]
-            self.refresh_window_frame(window, cx);
+            self.apply_window_style(window, cx);
         }
     }
 
-    /// 把 DWM 边框画成标题栏底色
-    #[cfg(windows)]
-    fn refresh_window_frame(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 是否使用暗色主题（配置优先，否则跟随系统）
+    fn is_dark(&self, window: &Window) -> bool {
+        theme::is_dark(self.settings.theme, window.appearance())
+    }
+
+    /// 是否真的使用透明材质（非 Windows 一律实色）
+    fn translucent(&self) -> bool {
+        translucent(&self.settings)
+    }
+
+    /// 当前配色：含背景透明度与系统强调色
+    fn palette(&self, window: &Window) -> Palette {
+        let alpha = if self.translucent() {
+            self.settings.alpha()
+        } else {
+            1.0
+        };
+        Palette::new(self.is_dark(window), alpha, self.accent)
+    }
+
+    /// 重新读取系统强调色；变化时返回 true
+    fn refresh_accent(&mut self) -> bool {
+        #[cfg(windows)]
+        let next = win::system_accent().unwrap_or(theme::DEFAULT_ACCENT);
+        #[cfg(not(windows))]
+        let next = theme::DEFAULT_ACCENT;
+
+        let changed = next != self.accent;
+        self.accent = next;
+        changed
+    }
+
+    /// 应用 DWM 边框 / 暗色模式 / 背景材质
+    fn apply_window_style(&self, window: &mut Window, cx: &mut Context<Self>) {
         if self.hwnd == 0 {
             return;
         }
         let hwnd = self.hwnd as *mut core::ffi::c_void;
-        let border_rgb = Palette::for_appearance(window.appearance()).titlebar_rgb;
-        window.defer(cx, move |_, _| win::apply_window_frame(hwnd, border_rgb));
+        let dark = self.is_dark(window);
+        let palette = self.palette(window);
+        let translucent = self.translucent();
+        let backdrop = translucent && self.settings.uses_backdrop();
+        let border_rgb = palette.titlebar_rgb;
+        #[cfg(windows)]
+        let kind = backdrop_kind(&self.settings);
+
+        window.defer(cx, move |_, _| {
+            #[cfg(windows)]
+            {
+                win::apply_window_frame(hwnd, border_rgb, backdrop);
+                win::apply_dark_mode(hwnd, dark);
+                let supported = win::apply_backdrop(hwnd, kind);
+                // 22621 之前没有系统背景：用 Win10 老式亚克力；拖动时会自动降级
+                win::set_legacy_accent(hwnd, backdrop && !supported);
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = (hwnd, dark, border_rgb, backdrop, window);
+            }
+        });
     }
 
     /// 一次性窗口钩子：深浅色 / 可见性 / 失焦
     fn ensure_window_hooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self._appearance_sub.is_none() {
             self._appearance_sub = Some(cx.observe_window_appearance(window, |this, window, cx| {
-                #[cfg(windows)]
-                this.refresh_window_frame(window, cx);
+                this.refresh_accent();
+                this.apply_window_style(window, cx);
                 cx.notify();
             }));
         }
@@ -205,8 +289,7 @@ impl Spike {
         if self._visibility_sub.is_none() {
             self._visibility_sub =
                 Some(cx.observe_window_visibility(window, |this, _, window, cx| {
-                    #[cfg(windows)]
-                    this.refresh_window_frame(window, cx);
+                    this.apply_window_style(window, cx);
                 }));
         }
 
@@ -215,12 +298,23 @@ impl Spike {
             self._activation_sub =
                 Some(cx.observe_window_activation(window, |this, window, cx| {
                     if window.is_window_active() {
+                        // 激活后系统强调色可能已变；只有真的变了才重设窗口外观，
+                        // 避免每次切换焦点都触发一次 DWM 框架重建
+                        if this.refresh_accent() {
+                            this.apply_window_style(window, cx);
+                            cx.notify();
+                        }
                         return;
                     }
                     // Alt+Tab 时松开 Alt 收不到事件，必须自己复位下划线
                     let alt_reset = std::mem::take(&mut this.alt_held);
                     let menu_closed = this.close_menu();
-                    if alt_reset || menu_closed {
+                    // 切走时鼠标抬起事件收不到，滑杆拖动要收尾并写盘
+                    let drag_reset = std::mem::take(&mut this.settings_drag);
+                    if drag_reset {
+                        this.settings.save();
+                    }
+                    if alt_reset || menu_closed || drag_reset {
                         cx.notify();
                     }
                 }));
@@ -235,15 +329,16 @@ impl Render for Spike {
         self.schedule_sharpen(window, cx);
         self.ensure_window_hooks(window, cx);
 
+        let palette = self.palette(window);
         let titlebar = self.render_titlebar(window, cx);
         let menu_layer = self.render_menu_layer(window, cx);
-        let palette = Palette::for_appearance(window.appearance());
-        let thumb_bar = self
-            .show_thumbs
-            .then(|| self.render_thumbnails(&palette, cx));
+        let settings_panel = self.render_settings_panel(window, cx);
+        let thumb_bar = self.show_thumbs.then(|| self.render_thumbnails(window, cx));
         let focus_handle = self.focus_handle.clone();
+        let drop_hover = self.drop_hover;
 
         div()
+            .id("app-root")
             .size_full()
             .relative()
             .flex()
@@ -259,9 +354,93 @@ impl Render for Spike {
                     cx.notify();
                 }
             }))
+            // 外部文件拖入：整窗接管，松开即打开
+            .on_drag_move::<ExternalPaths>(cx.listener(|this, _, _, cx| {
+                if !this.drop_hover {
+                    this.drop_hover = true;
+                    cx.notify();
+                }
+            }))
+            .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                if std::mem::take(&mut this.drop_hover) {
+                    cx.notify();
+                }
+                if let Some(path) = paths.0.first() {
+                    this.open_path(path.clone(), window, cx);
+                }
+            }))
+            .on_file_drop_exit(cx.listener(|this, _: &FileDropEvent, _, cx| {
+                if std::mem::take(&mut this.drop_hover) {
+                    cx.notify();
+                }
+            }))
+            // 透明度滑杆的拖动由根元素接管：鼠标移出滑杆也不会断
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                if this.settings_drag && event.dragging() {
+                    this.set_opacity_at(event.position, window, cx);
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.finish_opacity_drag(cx)),
+            )
             .child(titlebar)
             .child(self.render_viewer(window, cx))
             .when_some(thumb_bar, |this, bar| this.child(bar))
+            .when(drop_hover, |this| this.child(drop_overlay(&palette)))
             .when_some(menu_layer, |this, layer| this.child(layer))
+            .when_some(settings_panel, |this, panel| this.child(panel))
     }
+}
+
+/// 文件拖到窗口上时的高亮框与提示
+fn drop_overlay(palette: &Palette) -> AnyElement {
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .absolute()
+                .inset(px(6.0))
+                .rounded(px(10.0))
+                .border_2()
+                .border_color(palette.accent.opacity(0.85))
+                .bg(palette.accent.opacity(0.05)),
+        )
+        .child(
+            div()
+                .px(px(14.0))
+                .py(px(8.0))
+                .rounded(px(8.0))
+                .bg(palette.card_bg)
+                .border_1()
+                .border_color(palette.card_border)
+                .text_size(px(12.0))
+                .text_color(palette.text)
+                .child("松开以打开图片"),
+        )
+        .into_any_element()
+}
+
+/// 配置里的材质 → DWM 材质；100% 不透明或未选材质时不请求 backdrop
+#[cfg(windows)]
+fn backdrop_kind(settings: &Settings) -> win::Backdrop {
+    if !translucent(settings) || !settings.uses_backdrop() {
+        return win::Backdrop::None;
+    }
+    match settings.material {
+        settings::Material::Acrylic => win::Backdrop::Acrylic,
+        settings::Material::Mica => win::Backdrop::Mica,
+        settings::Material::None => win::Backdrop::None,
+    }
+}
+
+/// 自绘背景层能否透明：Windows、不透明度 < 100%、且 DComp 没被排查开关关掉
+fn translucent(settings: &Settings) -> bool {
+    cfg!(windows)
+        && settings.translucent()
+        && std::env::var_os("GPUI_DISABLE_DIRECT_COMPOSITION").is_none()
 }

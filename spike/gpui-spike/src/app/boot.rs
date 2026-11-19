@@ -1,4 +1,4 @@
-//! 启动装配：窗口选项、首次 DWM 边框、命令行传入的图片
+//! 启动装配：窗口选项、首次 DWM 外观、命令行传入的图片
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -10,16 +10,18 @@ use gpui::{
 use gpui_platform::application;
 
 use super::Spike;
-use super::theme::Palette;
+use super::settings::Settings;
+use super::theme;
 #[cfg(windows)]
 use crate::win;
 
 /// 创建主窗口并运行事件循环
 pub fn run() {
     let started_at = Instant::now();
-    // 实色方案：标题栏与内容区各自不透明，靠明度差区分（同 VS Code / Windows Terminal）。
-    // `Opaque` 下渲染器用白色清屏，但整块客户区都被我们的实色覆盖，不会露出清屏色。
-    let backdrop = WindowBackgroundAppearance::Opaque;
+    // 配置在开窗之前读：材质与透明度决定首帧用透明还是实色背景
+    let settings = Settings::load();
+    // 材质只有 Windows 有系统背景可透；其他平台与排查模式下退化为实色
+    let translucent = super::translucent(&settings);
     let initial_path = std::env::args_os().nth(1).map(PathBuf::from);
 
     application().run(move |cx: &mut App| {
@@ -35,7 +37,16 @@ pub fn run() {
                 appears_transparent: true,
                 traffic_light_position: None,
             }),
-            window_background: backdrop,
+            // gpui 在创建时按窗口样式测量 border_offset；这里先让它量到 0，
+            // 建窗后由 win.rs 再加回 WS_THICKFRAME 并接管客户区，避免多出一圈未绘制边缘。
+            is_resizable: false,
+            // 材质模式必须非 Opaque：渲染器才会清成透明，DWM 背景透出来。
+            // 实色模式用 Opaque，subpixel 文字抗锯齿也能恢复。
+            window_background: if translucent {
+                WindowBackgroundAppearance::Transparent
+            } else {
+                WindowBackgroundAppearance::Opaque
+            },
             window_min_size: Some(size(px(420.0), px(320.0))),
             ..Default::default()
         };
@@ -44,12 +55,24 @@ pub fn run() {
             let hwnd = native_handle(window);
             #[cfg(windows)]
             if hwnd != 0 {
-                // 把 DWM 的 1px 边框画成标题栏底色，避免自绘标题栏顶部出现亮线
-                let border_rgb = Palette::for_appearance(window.appearance()).titlebar_rgb;
-                win::apply_window_frame(hwnd as *mut core::ffi::c_void, border_rgb);
+                let raw = hwnd as *mut core::ffi::c_void;
+                let dark = theme::is_dark(settings.theme, window.appearance());
+                let accent = win::system_accent().unwrap_or(theme::DEFAULT_ACCENT);
+                let border_rgb =
+                    theme::Palette::new(dark, settings.alpha(), accent).titlebar_rgb;
+                let backdrop = translucent && settings.uses_backdrop();
+                // 先试无边框；Win10 失败时回退成标题栏底色，避免露出原生亮边
+                win::apply_window_frame(raw, border_rgb, backdrop);
+                win::apply_dark_mode(raw, dark);
+                let supported = win::apply_backdrop(raw, super::backdrop_kind(&settings));
+                // 22621 之前没有系统背景材质：直接设老式亚克力；窗口创建时已是
+                // `Transparent`，渲染器仍会清成透明，这里只补系统背景模糊。
+                win::set_legacy_accent(raw, backdrop && !supported);
+                // 去 native frame、保留边缘缩放，并在拖动时降级模糊。
+                win::install_window_hooks(raw);
             }
 
-            let view = cx.new(|cx| Spike::new(hwnd, started_at, cx));
+            let view = cx.new(|cx| Spike::new(hwnd, started_at, settings, cx));
 
             // 让内容区直接接收键盘快捷键
             let handle = view.read(cx).focus_handle.clone();

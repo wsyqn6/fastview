@@ -2,14 +2,15 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, Context, ObjectFit, RenderImage, Window, div, hsla, img, prelude::*, px,
+    Animation, AnimationExt, AnyElement, Context, ObjectFit, RenderImage, Window, div,
+    ease_out_quint, hsla, img, prelude::*, px,
 };
 
 use super::Spike;
-use super::theme::{Palette, THUMB_BAR_HEIGHT, THUMB_SIZE};
+use super::theme::{THUMB_BAR_HEIGHT, THUMB_SIZE};
 use crate::{folder, shell};
 
 /// 向系统要的缩略图长边（留 HiDPI 余量，实际尺寸由 shell 决定）
@@ -112,12 +113,13 @@ impl Spike {
     /// 缩略图条：底部横向排布，点击切换
     pub(super) fn render_thumbnails(
         &mut self,
-        palette: &Palette,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(folder) = self.folder.as_ref() else {
             return div().into_any_element();
         };
+        let palette = self.palette(window);
         let current = folder.index;
 
         // 换图后把当前项滚进可视区（目录几十张时看不到高亮就没意义了）
@@ -138,18 +140,29 @@ impl Spike {
                     .id(("thumb", index))
                     .flex_none()
                     .size(px(THUMB_SIZE))
-                    .overflow_hidden()
-                    .rounded(px(4.0))
-                    .bg(palette.active)
-                    .when(selected, |this| {
-                        this.border_2().border_color(hsla(0.55, 1.0, 0.65, 1.0))
+                    // 选中环 2px + 2px 间隙，未选中也保留同宽透明边框，避免跳动
+                    .border_2()
+                    .border_color(if selected {
+                        palette.accent
+                    } else {
+                        hsla(0.0, 0.0, 0.0, 0.0)
+                    })
+                    .p(px(2.0))
+                    .rounded(px(6.0))
+                    .when(!selected, |this| {
+                        this.hover(move |style| style.bg(palette.hover))
                     })
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_path(target.clone(), window, cx);
                     }))
                     .when_some(self.thumbs.get(path).cloned(), |this, image| {
-                        this.child(img(image).object_fit(ObjectFit::Contain).size_full())
+                        this.child(
+                            img(image)
+                                .object_fit(ObjectFit::Contain)
+                                .size_full()
+                                .rounded(px(4.0)),
+                        )
                     })
                     .into_any_element()
             });
@@ -162,12 +175,28 @@ impl Spike {
             .flex()
             .flex_row()
             .items_center()
-            .gap_2()
-            .px_2()
-            .overflow_x_scroll()
-            .track_scroll(&self.thumb_scroll)
-            .bg(palette.content_bg)
-            .children(items)
+            .overflow_hidden()
+            .bg(palette.surface_bg)
+            .child(
+                div()
+                    .id("thumbbar-scroll")
+                    .size_full()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .overflow_hidden()
+                    .overflow_x_scroll()
+                    .track_scroll(&self.thumb_scroll)
+                    .children(items)
+                    // 内容淡入 + 轻微上移；外层高度不变，查看器不会跟着抖动
+                    .with_animation(
+                        "thumbbar-open",
+                        Animation::new(Duration::from_millis(160)).with_easing(ease_out_quint()),
+                        |row, t| row.opacity(t).mt(px((1.0 - t) * 6.0)),
+                    ),
+            )
             .into_any_element()
     }
 }

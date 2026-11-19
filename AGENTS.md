@@ -110,8 +110,18 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
   - 不要再自己实现 `start_window_move` + `SetWindowPos` 的拖拽，会丢掉 DWM 动画与分屏。
 - 命中盒需要元素有显式 `.id()`，否则 `window_control_area` 不生效。
 - 窗口控制图标**全部用几何图形自绘**（横线 / 方框 / 双框 / 两条对角线），统一 `Path` 填充 + 1px 线宽，不用字体：`Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框；文本 `×` 与几何线条粗细不一致。
-- 标题栏与主体都**不透明实色**，只靠底色明度区分，不加 1px 分隔线（参考 Windows Terminal / VS Code）；主体必须完全不透明（图片取色环境不能受桌面影响），不使用 Mica/亚克力材质。
+- 标题栏与主体共用同一套半透明底色，只靠底色明度区分，不加 1px 分隔线（参考 Windows Terminal / VS Code）。
+- 窗口材质与不透明度是**两个独立设置**：材质只决定是否请求系统 backdrop；不透明度只决定自绘背景层 alpha。
+  - 默认亚克力 + 65% 不透明；100% 时窗口用 `Opaque`，恢复 subpixel AA，材质视觉上不可见。
+  - Win11 可选 `亚克力 / 云母 / 无`，走 `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)`：亚克力 = `3`，云母 = `2`。
+  - Win10 没有系统 backdrop，设置里隐藏「云母」，亚克力回退到 SWCA `ACCENT_ENABLE_ACRYLICBLURBEHIND`；「无模糊 + <100%」只透明不模糊。
+  - v1 配置里的 `material=none` 迁移为 v2 的 `material=none + opacity=100`，保持原来实色行为。
+- 边框根因：gpui 在开窗时按 `border_offset` 固定布局尺寸；之后再改 `WM_NCCALCSIZE` 会让左右下多出一圈 gpui 没绘制的透明像素。解决顺序：`boot.rs` 创建窗口时设 `is_resizable=false`，让 gpui 量到 `border_offset=0`；`win.rs::install_window_hooks` 随后加回 `WS_THICKFRAME|WS_MAXIMIZEBOX`，再用 `WM_NCCALCSIZE` 把客户区扩到整窗、**必须保存进入时的 `NCCALCSIZE_PARAMS.rgrc[0]`（新窗口矩形）再写回，`rgrc[2]` 不是窗口矩形**；`WM_NCHITTEST` 补左右下缩放命中。Win11 用 `DWMWA_COLOR_NONE`；Win10 用 `DWMWA_NCRENDERING_POLICY=DWMNCRP_DISABLED` 去 DWM shadow。
 - 菜单入口与下拉**都在窗口内自绘**：下拉是一层全窗遮罩（负责关闭/跟随切换）+ 面板，复用同一套配色、字号与圆角；不用 `SetMenu`，也不用 `TrackPopupMenuEx`（模态循环会阻断 gpui 事件）。
+- **拖动跟手**：不要拦截移动循环的重绘。DComp 窗口（`WS_EX_NOREDIRECTIONBITMAP`）没有重定向位图，画面内容跟随窗口位置**依赖每帧 present**；压低重绘会变成「边框在动、画面追不上」。
+  - 透明材质在拖动时卡顿的根因是 Win10 SWCA 亚克力每帧重采样背景；`win.rs` 用 `SetWindowSubclass` 只接管 `WM_ENTERSIZEMOVE` / `WM_EXITSIZEMOVE`：进入时把模糊降为 `ACCENT_ENABLE_BLURBEHIND`（低开销），退出时恢复，窗口自身 alpha 始终不变。
+  - 钩子**不动** `WM_TIMER` / `WM_PAINT`；Win11 的 DWM 材质同理临时切到 `DWMSBT_NONE` 再恢复。
+  - `ACTIVE_BACKDROP` / `LEGACY_ACCENT_STATE` 存**期望材质**，`SIZE_MOVE_ACTIVE` 存当前是否处于移动循环；最大化/还原触发 `apply_window_style` 时也只会应用低开销材质，避免覆盖拖动降级。
 
 ## ⌨️ 快捷键
 - `←/→` 上一张/下一张 | `+/-` 缩放 | `0/1/2` 适应/原始/填充
@@ -119,6 +129,7 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - `Space` 按住拖动 | `H`/`?` 帮助
 - `Alt+F/V/S/H` 展开菜单（AltGr 不算）；菜单展开后直接按 `O/X/0/1/2/U/K/A` 执行，`↑↓←→` 移动、`Enter` 执行、`Esc` 收起
 - 文案常显 `文件(F)`，下划线**只在按住 Alt 或菜单展开时**出现（同系统菜单）；Alt 状态来自元素级 `on_modifiers_changed`，失焦时手动复位（Alt+Tab 收不到 keyup）；下划线颜色必须显式指定，`UnderlineStyle.color` 为 `None` 时是透明色
+- gpui spike：`Ctrl+,` 开关设置面板（主题 / 材质 / 不透明度），`Esc` 关闭；面板展开时其余快捷键不落到查看器
 
 ## 📜 编码规范
 
@@ -159,7 +170,8 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - 文案通过 `TextKey` 枚举管理，跟随系统深浅色
 
 ## 💾 配置路径
-`%APPDATA%\fastview\settings.json`
+- egui 主线：`%APPDATA%\fastview\settings.json`
+- gpui spike：`%APPDATA%\fastview\gpui-settings.json`（独立文件，避免两条线互相覆盖字段）
 
 ## 📦 构建命令
 ```bash

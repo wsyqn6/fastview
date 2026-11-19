@@ -1,12 +1,15 @@
 //! 内容区：图片绘制与缩放 / 平移交互
 
+use std::time::Duration;
+
 use gpui::{
-    AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, ScrollDelta,
-    ScrollEvent, Size, Window, div, hsla, img, point, prelude::*, px,
+    Animation, AnimationExt, AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent,
+    ObjectFit, ScrollDelta, ScrollEvent, Size, Window, div, ease_out_quint, hsla, img, point,
+    prelude::*, px,
 };
 
 use super::Spike;
-use super::theme::{Palette, TITLEBAR_HEIGHT};
+use super::theme::{Palette, RADIUS_PANEL, TITLEBAR_HEIGHT};
 use crate::viewer;
 
 impl Spike {
@@ -15,7 +18,7 @@ impl Spike {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let palette = Palette::for_appearance(window.appearance());
+        let palette = self.palette(window);
         let view = self.view_size(window);
         let scale_factor = window.scale_factor();
 
@@ -125,15 +128,21 @@ impl Spike {
             .absolute()
             .left(px(12.0))
             .bottom(px(12.0))
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(6.0))
+            .px(px(10.0))
+            .py(px(5.0))
+            .rounded(px(RADIUS_PANEL))
             .bg(palette.card_bg)
             .border_1()
             .border_color(palette.card_border)
-            .text_size(px(11.0))
+            .text_size(px(12.0))
             .text_color(palette.text_muted)
             .child(label)
+            // 每次切图重放一次淡入
+            .with_animation(
+                ("status-badge", self.badge_seq),
+                Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()),
+                |badge, t| badge.opacity(t),
+            )
             .into_any_element()
     }
 
@@ -161,7 +170,7 @@ impl Spike {
             .flex_col()
             .items_center()
             .justify_center()
-            .gap(px(6.0))
+            .gap(px(8.0))
             .child(
                 div()
                     .text_size(px(13.0))

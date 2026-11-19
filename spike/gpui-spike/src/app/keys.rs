@@ -74,6 +74,19 @@ impl Spike {
         let key = keystroke.key.as_str();
         let modifiers = keystroke.modifiers;
 
+        // 设置面板：Ctrl+, 开关，Esc 关闭，其余按键不落到查看器
+        if modifiers.control && !modifiers.alt && (key == "," || key == "comma") {
+            cx.stop_propagation();
+            self.toggle_settings(window, cx);
+            return;
+        }
+        if self.settings_open {
+            if key.eq_ignore_ascii_case("escape") {
+                self.close_settings(window, cx);
+            }
+            return;
+        }
+
         // Alt+助记符直达顶层菜单（AltGr 是 Ctrl+Alt，必须排除）
         if modifiers.alt
             && !modifiers.control
@@ -176,6 +189,10 @@ impl Spike {
             Cmd::Fill => self.set_mode(viewer::ViewMode::Fill, window),
             Cmd::Thumbnails => {
                 self.toggle_thumbs(cx);
+                return;
+            }
+            Cmd::Settings => {
+                self.open_settings(cx);
                 return;
             }
             _ => {}

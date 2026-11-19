@@ -3,13 +3,17 @@
 //! 面板放在窗口内而不是单独的 popup 窗口：复用同一个 renderer / atlas，
 //! 也省掉定位、失焦、多显示器翻转那一整套系统语义。
 
+use std::time::Duration;
+
 use gpui::{
-    AnyElement, BoxShadow, Context, MouseButton, MouseDownEvent, MouseMoveEvent, Point, Pixels,
-    Window, div, hsla, prelude::*, px,
+    Animation, AnimationExt, AnyElement, BoxShadow, Context, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Point, Pixels, Window, div, ease_out_quint, hsla, prelude::*, px,
 };
 
 use super::Spike;
-use super::theme::{MENU_WIDTH, Palette, TITLEBAR_HEIGHT};
+use super::theme::{
+    MENU_ITEM_HEIGHT, MENU_WIDTH, RADIUS_ITEM, RADIUS_PANEL, TITLEBAR_HEIGHT,
+};
 use super::widgets::mnemonic_label;
 use crate::menu;
 
@@ -43,6 +47,8 @@ impl Spike {
         self.open_menu = if self.open_menu == Some(index) {
             None
         } else {
+            // 每次展开都换一个序号，让淡入动画重放
+            self.menu_seq = self.menu_seq.wrapping_add(1);
             Some(index)
         };
         self.menu_selected = None;
@@ -146,7 +152,7 @@ impl Spike {
     ) -> Option<AnyElement> {
         let index = self.open_menu?;
         let spec = menu::MENUS.get(index)?;
-        let palette = Palette::for_appearance(window.appearance());
+        let palette = self.palette(window);
 
         let window_width: f32 = window.viewport_size().width.into();
         let item_x = self
@@ -186,18 +192,18 @@ impl Spike {
         let mut panel = div()
             .absolute()
             .left(px(panel_x))
-            .top(px(TITLEBAR_HEIGHT))
+            .top(px(TITLEBAR_HEIGHT + 4.0))
             .w(px(MENU_WIDTH))
             .flex()
             .flex_col()
             .p(px(4.0))
-            .rounded(px(8.0))
+            .rounded(px(RADIUS_PANEL))
             .bg(palette.menu_bg)
             .border_1()
             .border_color(palette.menu_border)
             .shadow(vec![
-                BoxShadow::new(px(0.0), px(6.0), hsla(0.0, 0.0, 0.0, 0.22))
-                    .blur_radius(px(18.0))
+                BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
+                    .blur_radius(px(24.0))
                     .spread_radius(px(-6.0)),
                 BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
             ])
@@ -212,7 +218,7 @@ impl Spike {
                             .h(px(1.0))
                             .mx(px(8.0))
                             .my(px(4.0))
-                            .bg(palette.menu_border),
+                            .bg(palette.separator),
                     );
                 }
                 menu::MenuItem::Command {
@@ -225,11 +231,11 @@ impl Spike {
                     let selected = self.menu_selected == Some(item_index);
                     let mut row = div()
                         .id(("menu-row", item_index))
-                        .h(px(28.0))
+                        .h(px(MENU_ITEM_HEIGHT))
                         .px(px(8.0))
                         .flex()
                         .items_center()
-                        .rounded(px(4.0))
+                        .rounded(px(RADIUS_ITEM))
                         .text_size(px(12.0))
                         .text_color(palette.text)
                         .when(selected, |this| this.bg(palette.active))
@@ -265,7 +271,11 @@ impl Spike {
                 .absolute()
                 .inset_0()
                 .child(backdrop)
-                .child(panel)
+                .child(panel.with_animation(
+                    ("menu-panel", self.menu_seq),
+                    Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
+                    |panel, t| panel.opacity(t).mt(px((1.0 - t) * 4.0)),
+                ))
                 .into_any_element(),
         )
     }

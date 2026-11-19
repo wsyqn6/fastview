@@ -5,14 +5,14 @@ use gpui::{
 };
 
 use super::Spike;
-use super::theme::{TITLEBAR_HEIGHT, Palette};
+use super::theme::TITLEBAR_HEIGHT;
 use super::widgets::{Icon, mnemonic_label, window_button};
 use crate::menu;
 
 impl Spike {
     pub(super) fn render_titlebar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let is_maximized = window.is_maximized();
-        let palette = Palette::for_appearance(window.appearance());
+        let palette = self.palette(window);
         // 助记符下划线：按住 Alt 或菜单展开时显示
         let mnemonics = self.alt_held || self.open_menu.is_some();
 
@@ -21,8 +21,8 @@ impl Spike {
             .flex_row()
             .items_center()
             .h(px(TITLEBAR_HEIGHT))
-            // 标题栏与主体都是实色，靠明度差区分，不加分隔线
-            .bg(palette.titlebar())
+            // 半透明标题栏：与主体只靠这点 alpha 差区分，不加分隔线
+            .bg(palette.titlebar)
             // 左边缘留白也可拖动（需要显式 id 才会生成命中盒）
             .child(
                 div()
@@ -40,7 +40,7 @@ impl Spike {
             menus = menus.child(
                 div()
                     .id(("top-menu", index))
-                    .h(px(24.0))
+                    .h(px(26.0))
                     .px(px(10.0))
                     .flex()
                     .items_center()
@@ -75,11 +75,13 @@ impl Spike {
                 .flex()
                 .items_center()
                 .justify_center()
+                .overflow_hidden()
                 .window_control_area(WindowControlArea::Drag)
                 .child(
                     div()
                         .px(px(16.0))
                         .text_size(px(12.0))
+                        .truncate()
                         .text_color(palette.text_muted)
                         .child(
                             self.image
