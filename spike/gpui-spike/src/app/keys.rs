@@ -89,6 +89,17 @@ impl Spike {
             }
             return;
         }
+        // 快捷键说明：Esc / H / ? 关闭，其余按键不落到查看器
+        if self.help_open {
+            if key.eq_ignore_ascii_case("escape")
+                || key.eq_ignore_ascii_case("h")
+                || key == "?"
+                || (modifiers.shift && key == "/")
+            {
+                self.close_help(cx);
+            }
+            return;
+        }
 
         // Alt+助记符直达顶层菜单（AltGr 是 Ctrl+Alt，必须排除）
         if modifiers.alt
@@ -124,6 +135,14 @@ impl Spike {
 
         if plain && key.eq_ignore_ascii_case("f11") {
             window.toggle_fullscreen();
+            return;
+        }
+
+        // 帮助不依赖有没有图片，放在图片守卫之前
+        if plain
+            && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
+        {
+            self.toggle_help(cx);
             return;
         }
 
@@ -197,6 +216,10 @@ impl Spike {
             }
             Cmd::Settings => {
                 self.open_settings(cx);
+                return;
+            }
+            Cmd::Shortcuts => {
+                self.open_help(cx);
                 return;
             }
             _ => {}

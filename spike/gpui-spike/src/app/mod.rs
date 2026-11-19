@@ -11,6 +11,7 @@
 //! - `boot`：窗口创建与事件循环入口
 
 mod boot;
+mod help_panel;
 mod keys;
 mod load;
 mod menu_layer;
@@ -104,6 +105,8 @@ pub struct Spike {
     settings: Settings,
     /// 设置面板是否展开
     settings_open: bool,
+    /// 快捷键说明浮层是否展开
+    help_open: bool,
     /// 正在拖动透明度滑杆
     settings_drag: bool,
     /// 滑杆轨道的窗口坐标（prepaint 每帧更新）
@@ -164,6 +167,7 @@ impl Spike {
             _activation_sub: None,
             settings,
             settings_open: false,
+            help_open: false,
             settings_drag: false,
             slider_bounds: Rc::new(RefCell::new(None)),
             accent,
@@ -348,6 +352,7 @@ impl Render for Spike {
         let titlebar = self.render_titlebar(window, cx);
         let menu_layer = self.render_menu_layer(window, cx);
         let settings_panel = self.render_settings_panel(window, cx);
+        let help_panel = self.render_help_panel(window, cx);
         let thumb_bar = self.show_thumbs.then(|| self.render_thumbnails(window, cx));
         let focus_handle = self.focus_handle.clone();
         let drop_hover = self.drop_hover;
@@ -412,6 +417,7 @@ impl Render for Spike {
             .when(drop_hover, |this| this.child(drop_overlay(&palette)))
             .when_some(menu_layer, |this, layer| this.child(layer))
             .when_some(settings_panel, |this, panel| this.child(panel))
+            .when_some(help_panel, |this, panel| this.child(panel))
     }
 }
 
