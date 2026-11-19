@@ -327,7 +327,9 @@ impl Spike {
                     if drag_reset {
                         this.settings.save();
                     }
-                    if alt_reset || menu_closed || drag_reset {
+                    // 拖文件时切走窗口可能收不到 drop exit，兜底清掉高亮
+                    let drop_reset = std::mem::take(&mut this.drop_hover);
+                    if alt_reset || menu_closed || drag_reset || drop_reset {
                         cx.notify();
                     }
                 }));
@@ -396,7 +398,13 @@ impl Render for Spike {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_opacity_drag(cx)),
+                cx.listener(|this, _, _, cx| {
+                    this.finish_opacity_drag(cx);
+                    // 文件拖拽结束时 exit 事件可能丢失，鼠标抬起兜底复位高亮
+                    if std::mem::take(&mut this.drop_hover) {
+                        cx.notify();
+                    }
+                }),
             )
             .child(titlebar)
             .child(self.render_viewer(window, cx))
