@@ -17,7 +17,7 @@ mod menu_layer;
 mod pane;
 mod settings;
 mod settings_panel;
-mod theme;
+pub(crate) mod theme;
 mod thumbs;
 mod titlebar;
 mod widgets;

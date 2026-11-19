@@ -5,7 +5,7 @@ use gpui::{
 };
 
 use super::Spike;
-use super::theme::TITLEBAR_HEIGHT;
+use super::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
 use super::widgets::{Icon, mnemonic_label, window_button};
 use crate::menu;
 
@@ -16,13 +16,51 @@ impl Spike {
         // 助记符下划线：按住 Alt 或菜单展开时显示
         let mnemonics = self.alt_held || self.open_menu.is_some();
 
+        // 标题浮层相对整条栏居中；预留两侧控件宽度，长文件名只在中间截断
+        let side_reserve = {
+            let rects = self.menu_rects.borrow();
+            let left = rects
+                .last()
+                .map(|r| f32::from(r.origin.x) + f32::from(r.size.width))
+                .unwrap_or(8.0 + menu::MENUS.len() as f32 * 52.0);
+            left.max(3.0 * WINDOW_BUTTON_WIDTH)
+        };
+        let title_max =
+            (f32::from(window.viewport_size().width) - 2.0 * side_reserve - 32.0).max(0.0);
+        let title = self
+            .image
+            .as_ref()
+            .map(|image| image.file_name())
+            .unwrap_or_default();
+
         let mut bar = div()
             .flex()
             .flex_row()
             .items_center()
+            .relative()
             .h(px(TITLEBAR_HEIGHT))
             // 半透明标题栏：与主体只靠这点 alpha 差区分，不加分隔线
             .bg(palette.titlebar)
+            // 浮层置于控件下层；只有文字盒带 Drag 命中，不挡菜单与窗口按钮
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("titlebar-title")
+                            .px(px(16.0))
+                            .max_w(px(title_max))
+                            .text_size(px(12.0))
+                            .truncate()
+                            .text_color(palette.text_muted)
+                            .window_control_area(WindowControlArea::Drag)
+                            .child(title),
+                    ),
+            )
             // 左边缘留白也可拖动（需要显式 id 才会生成命中盒）
             .child(
                 div()
@@ -72,24 +110,7 @@ impl Spike {
                 .id("titlebar-drag")
                 .flex_1()
                 .h_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .overflow_hidden()
-                .window_control_area(WindowControlArea::Drag)
-                .child(
-                    div()
-                        .px(px(16.0))
-                        .text_size(px(12.0))
-                        .truncate()
-                        .text_color(palette.text_muted)
-                        .child(
-                            self.image
-                                .as_ref()
-                                .map(|image| image.file_name())
-                                .unwrap_or_default(),
-                        ),
-                ),
+                .window_control_area(WindowControlArea::Drag),
         )
         .child(window_button(
             "win-min",

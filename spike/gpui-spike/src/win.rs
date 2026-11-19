@@ -12,8 +12,9 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use windows::Win32::Foundation::{HWND as SubclassHwnd, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, NCCALCSIZE_PARAMS,
-    WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY, WM_NCCALCSIZE, WM_NCHITTEST,
+    HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTMAXBUTTON, HTRIGHT,
+    NCCALCSIZE_PARAMS, WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY,
+    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONUP,
 };
 use windows_sys::Win32::Foundation::{HWND, POINT as SysPoint};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DwmSetWindowAttribute};
@@ -21,10 +22,12 @@ use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetClientRect, GetWindowLongPtrW, IsZoomed, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowLongPtrW,
-    WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_STYLE, GetClientRect, GetWindowLongPtrW, IsZoomed, SW_MAXIMIZE, SW_NORMAL,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SetWindowPos, SetWindowLongPtrW, ShowWindowAsync, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
+
+use crate::app::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
 
 /// DWMWA_NCRENDERING_POLICY
 const DWMWA_NCRENDERING_POLICY: u32 = 2;
@@ -269,12 +272,30 @@ unsafe extern "system" fn window_frame_proc(
         }
         WM_NCHITTEST => {
             let result = unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) };
+            // gpui 开窗时 is_resizable=false（为了 border_offset=0），把 Max 命中降级成 HTCAPTION。
+            // 按按钮矩形补回 HTMAXBUTTON，保留系统贴靠布局与悬停行为。
+            if result.0 == HTCAPTION as isize && unsafe { max_button_hit(hwnd, lparam) } {
+                return LRESULT(HTMAXBUTTON as isize);
+            }
             if result.0 == HTCLIENT as isize && unsafe { IsZoomed(raw) } == 0 {
                 if let Some(hit) = unsafe { edge_hit(hwnd, lparam) } {
                     return LRESULT(hit);
                 }
             }
             return result;
+        }
+        WM_NCLBUTTONUP => {
+            // gpui 的 is_resizable=false 不会执行最大化；自己调系统动作。
+            // 仍要把 UP 交给 gpui 清掉按钮的按下态，且 gpui 会吞掉该消息，
+            // 不会让 DefWindowProc 重复执行最大化/还原。
+            if wparam.0 as u32 == HTMAXBUTTON {
+                let show = if unsafe { IsZoomed(raw) } != 0 {
+                    SW_NORMAL
+                } else {
+                    SW_MAXIMIZE
+                };
+                unsafe { ShowWindowAsync(raw, show) };
+            }
         }
         _ => {}
     }
@@ -330,6 +351,28 @@ unsafe fn edge_hit(hwnd: SubclassHwnd, lparam: LPARAM) -> Option<isize> {
         _ => return None,
     };
     Some(hit as isize)
+}
+
+/// gpui 把 Max 按钮降级成 HTCAPTION；用按钮矩形补回真实命中。
+unsafe fn max_button_hit(hwnd: SubclassHwnd, lparam: LPARAM) -> bool {
+    let low = lparam.0 as i32;
+    let mut point = SysPoint {
+        x: (low & 0xffff) as i16 as i32,
+        y: ((low >> 16) & 0xffff) as i16 as i32,
+    };
+    let mut rect: windows_sys::Win32::Foundation::RECT = unsafe { std::mem::zeroed() };
+    unsafe {
+        if ScreenToClient(hwnd.0, &mut point) == 0 || GetClientRect(hwnd.0, &mut rect) == 0 {
+            return false;
+        }
+    }
+    let scale = unsafe { GetDpiForWindow(hwnd.0) } as f32 / 96.0;
+    let width = (WINDOW_BUTTON_WIDTH * scale).round() as i32;
+    let height = (TITLEBAR_HEIGHT * scale).round() as i32;
+    point.x >= rect.right - 2 * width
+        && point.x < rect.right - width
+        && point.y >= 0
+        && point.y < height
 }
 
 /// 移动 / 缩放期间：换成低开销模糊，保留窗口自身 alpha
