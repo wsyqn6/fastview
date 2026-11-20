@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, Pixels,
-    Point, Size, Window, div, img, point, prelude::*, px, size,
+    Point, Size, Window, div, hsla, img, point, prelude::*, px, size,
 };
 
 use super::Spike;
@@ -95,8 +95,6 @@ fn highlight(base: Size<Pixels>, view: Size<Pixels>, view_state: &ViewState, lay
     let y0 = (top - image_y) / zoom * layout.scale;
     let x1 = (right - image_x) / zoom * layout.scale;
     let y1 = (bottom - image_y) / zoom * layout.scale;
-    let inner_x: f32 = layout.inner_origin.x.into();
-    let inner_y: f32 = layout.inner_origin.y.into();
     let inner_w: f32 = layout.inner.width.into();
     let inner_h: f32 = layout.inner.height.into();
 
@@ -104,8 +102,9 @@ fn highlight(base: Size<Pixels>, view: Size<Pixels>, view_state: &ViewState, lay
     let height = (y1 - y0).max(MIN_HIGHLIGHT).min(inner_h);
     let center_x = (x0 + x1) / 2.0;
     let center_y = (y0 + y1) / 2.0;
-    let x = (center_x - width / 2.0).clamp(inner_x, inner_x + inner_w - width);
-    let y = (center_y - height / 2.0).clamp(inner_y, inner_y + inner_h - height);
+    // x0/y0 已是缩略图局部坐标，clamp 范围也必须是局部的
+    let x = (center_x - width / 2.0).clamp(0.0, inner_w - width);
+    let y = (center_y - height / 2.0).clamp(0.0, inner_h - height);
 
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }
@@ -158,6 +157,12 @@ pub(super) fn render(
     let base = image.logical_size(scale_factor);
     let map = layout(base, view);
     let mark = highlight(base, view, view_state, &map);
+    // 深色主题用白、浅色主题用黑，保证在任意照片上都能看清可视区
+    let mark_border = if palette.text.l > 0.5 {
+        hsla(0.0, 0.0, 1.0, 0.85)
+    } else {
+        hsla(0.0, 0.0, 0.0, 0.85)
+    };
 
     div()
         .id("minimap")
@@ -167,10 +172,7 @@ pub(super) fn render(
         .w(map.card.width)
         .h(map.card.height)
         .rounded(px(RADIUS_PANEL))
-        .bg(palette.card_bg)
-        .border_1()
-        .border_color(palette.card_border)
-        .shadow_sm()
+        .shadow_md()
         .occlude()
         .cursor_pointer()
         .on_mouse_down(
@@ -196,8 +198,8 @@ pub(super) fn render(
         .child(
             div()
                 .absolute()
-                .left(map.inner_origin.x)
-                .top(map.inner_origin.y)
+                .left(px(INNER_PADDING))
+                .top(px(INNER_PADDING))
                 .w(map.inner.width)
                 .h(map.inner.height)
                 .rounded(px(2.0))
@@ -211,10 +213,65 @@ pub(super) fn render(
                         .w(mark.size.width)
                         .h(mark.size.height)
                         .rounded(px(2.0))
-                        .border(px(1.5))
-                        .border_color(palette.accent)
-                        .bg(palette.accent.opacity(0.10)),
+                        .border_1()
+                        .border_color(mark_border)
+                        .bg(palette.accent.opacity(0.12)),
                 ),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::viewer::ViewMode;
+
+    #[test]
+    fn highlight_uses_inner_local_coordinates() {
+        let base = size(px(1000.0), px(1000.0));
+        let view = size(px(400.0), px(400.0));
+        let view_state = ViewState {
+            mode: ViewMode::Manual,
+            zoom: 2.0,
+            ..ViewState::default()
+        };
+        let map = layout(base, view);
+        let mark = highlight(base, view, &view_state, &map);
+
+        let x: f32 = mark.origin.x.into();
+        let y: f32 = mark.origin.y.into();
+        let width: f32 = mark.size.width.into();
+        let height: f32 = mark.size.height.into();
+        let inner_w: f32 = map.inner.width.into();
+        let inner_h: f32 = map.inner.height.into();
+
+        assert!(x >= 0.0 && x + width <= inner_w + 0.01, "x={x}, inner_w={inner_w}");
+        assert!(y >= 0.0 && y + height <= inner_h + 0.01, "y={y}, inner_h={inner_h}");
+    }
+
+    #[test]
+    fn highlight_follows_view_offset() {
+        let base = size(px(1000.0), px(1000.0));
+        let view = size(px(400.0), px(400.0));
+        let centered = ViewState {
+            mode: ViewMode::Manual,
+            zoom: 2.0,
+            ..ViewState::default()
+        };
+        let mut shifted = ViewState {
+            mode: ViewMode::Manual,
+            zoom: 2.0,
+            ..ViewState::default()
+        };
+        shifted.offset = point(px(-800.0), px(0.0));
+        let map = layout(base, view);
+
+        let a = highlight(base, view, &centered, &map);
+        let b = highlight(base, view, &shifted, &map);
+        let ax: f32 = a.origin.x.into();
+        let bx: f32 = b.origin.x.into();
+
+        assert!(ax > 0.0, "居中视口的高亮框不应贴在左边: {ax}");
+        assert!((bx - ax).abs() > 1.0, "平移后高亮框应移动: {ax} -> {bx}");
+    }
 }
