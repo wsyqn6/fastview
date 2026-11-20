@@ -6,6 +6,7 @@ use gpui::{
 };
 
 use super::Spike;
+use super::minimap;
 use super::theme::{Palette, TITLEBAR_HEIGHT};
 use crate::text::TextKey;
 use crate::viewer;
@@ -85,6 +86,15 @@ impl Spike {
 
         if let Some(image) = &self.image {
             area = area.child(self.render_image_layer(image, view, scale_factor));
+            if minimap::should_show(image, view, &self.view, scale_factor) {
+                area = area.child(minimap::render(
+                    image,
+                    view,
+                    &self.view,
+                    scale_factor,
+                    &palette,
+                ));
+            }
             // 拖放提示占用同一位置，避免和状态栏胶囊叠在一起
             if !self.chrome_hidden(window) && !self.drop_hover {
                 area = area.child(self.render_status_bar(image, view, scale_factor, &palette));

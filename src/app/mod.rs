@@ -16,6 +16,7 @@ mod info_panel;
 mod keys;
 mod load;
 mod menu_layer;
+mod minimap;
 mod pane;
 pub(crate) mod settings;
 mod settings_panel;
