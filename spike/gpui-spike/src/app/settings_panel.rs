@@ -8,8 +8,9 @@ use gpui::{
 };
 
 use super::Spike;
-use super::settings::{Material, Settings, Theme};
+use super::settings::{Language, Material, Settings, Theme};
 use super::theme::{Palette, RADIUS_ITEM, RADIUS_PANEL};
+use crate::text::TextKey;
 #[cfg(windows)]
 use crate::win;
 
@@ -133,6 +134,7 @@ impl Spike {
             return None;
         }
         let palette = self.palette(window);
+        let t = self.text();
 
         let backdrop = div()
             .absolute()
@@ -144,6 +146,44 @@ impl Spike {
                     this.close_settings(window, cx);
                 }),
             );
+
+        // 语言分段
+        let mut language_seg = div().flex().gap(px(4.0));
+        for (index, (label, value)) in [
+            (t.t(TextKey::LanguageSystem), Language::System),
+            (t.t(TextKey::LanguageChinese), Language::Chinese),
+            (t.t(TextKey::LanguageEnglish), Language::English),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let selected = self.settings.language == value;
+            language_seg = language_seg.child(
+                div()
+                    .id(("settings-language", index))
+                    .h(px(28.0))
+                    .px(px(10.0))
+                    .flex()
+                    .items_center()
+                    .rounded(px(RADIUS_ITEM + 2.0))
+                    .text_size(px(12.0))
+                    .text_color(if selected {
+                        palette.text
+                    } else {
+                        palette.text_muted
+                    })
+                    .when(selected, |this| this.bg(palette.active))
+                    .when(!selected, |this| {
+                        this.hover(move |style| style.bg(palette.hover))
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let mut next = this.settings.clone();
+                        next.language = value;
+                        this.update_settings(next, true, window, cx);
+                    }))
+                    .child(label),
+            );
+        }
 
         // 主题分段
         let mut theme_seg = div().flex().gap(px(4.0));
@@ -343,6 +383,11 @@ impl Spike {
                             )),
                     ),
             )
+            .child(settings_row(
+                t.t(TextKey::Language),
+                segmented(language_seg, &palette),
+                &palette,
+            ))
             .child(settings_row(
                 "主题",
                 segmented(theme_seg, &palette),

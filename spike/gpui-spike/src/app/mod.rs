@@ -17,7 +17,7 @@ mod keys;
 mod load;
 mod menu_layer;
 mod pane;
-mod settings;
+pub(crate) mod settings;
 mod settings_panel;
 mod status;
 pub(crate) mod theme;
@@ -42,6 +42,7 @@ use self::settings::Settings;
 use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
+use crate::text::Text;
 use crate::{cache, folder, viewer};
 
 pub use boot::run;
@@ -192,6 +193,11 @@ impl Spike {
             status_deadline: None,
             status_timer_gen: 0,
         }
+    }
+
+    /// 当前界面文案表
+    pub(super) fn text(&self) -> Text {
+        Text::new(self.settings.language)
     }
 
     /// 全屏 / 无边框时隐藏标题栏 / 菜单 / 状态栏，内容区占满窗口

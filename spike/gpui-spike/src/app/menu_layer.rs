@@ -153,6 +153,7 @@ impl Spike {
         let index = self.open_menu?;
         let spec = menu::MENUS.get(index)?;
         let palette = self.palette(window);
+        let t = self.text();
 
         let window_width: f32 = window.viewport_size().width.into();
         let item_x = self
@@ -251,7 +252,7 @@ impl Spike {
                             this.dispatch(cmd, window, cx);
                         }))
                         // 菜单展开时条目助记符始终可见（同系统菜单）
-                        .child(mnemonic_label(label, *mnemonic, palette.text, true));
+                        .child(mnemonic_label(t.t(*label), *mnemonic, palette.text, true));
 
                     if !shortcut.is_empty() {
                         row = row.child(div().flex_1()).child(

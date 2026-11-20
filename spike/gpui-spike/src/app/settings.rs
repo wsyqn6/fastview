@@ -7,6 +7,38 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// 界面语言：默认跟随系统 UI 语言
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    System,
+    Chinese,
+    English,
+}
+
+impl Language {
+    /// `System` 解析成具体语言；其余原样返回
+    pub fn effective(self) -> Self {
+        if self != Self::System {
+            return self;
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
+            // LANGID 低 10 位为primary language id：0x09 英语，0x04 中文
+            let primary = unsafe { GetUserDefaultUILanguage() } & 0x03ff;
+            if primary == 0x09 {
+                Self::English
+            } else {
+                Self::Chinese
+            }
+        }
+        #[cfg(not(windows))]
+        Self::Chinese
+    }
+}
+
 /// 主题：默认跟随系统
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,6 +77,8 @@ pub struct Settings {
     #[serde(default = "default_version")]
     pub version: u32,
     #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
     pub theme: Theme,
     #[serde(default)]
     pub material: Material,
@@ -62,6 +96,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: default_version(),
+            language: Language::System,
             theme: Theme::System,
             material: Material::Acrylic,
             opacity: default_opacity(),

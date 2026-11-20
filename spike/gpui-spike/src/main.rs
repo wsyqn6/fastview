@@ -19,6 +19,7 @@ mod folder;
 mod menu;
 #[cfg(windows)]
 mod shell;
+mod text;
 mod viewer;
 #[cfg(windows)]
 mod win;

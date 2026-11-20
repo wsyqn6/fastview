@@ -13,6 +13,7 @@ impl Spike {
     pub(super) fn render_titlebar(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let is_maximized = window.is_maximized();
         let palette = self.palette(window);
+        let t = self.text();
         // 助记符下划线：按住 Alt 或菜单展开时显示
         let mnemonics = self.alt_held || self.open_menu.is_some();
 
@@ -96,7 +97,12 @@ impl Spike {
                             this.press_menu(index, window, cx);
                         }),
                     )
-                    .child(mnemonic_label(spec.title, spec.mnemonic, palette.text, mnemonics)),
+                    .child(mnemonic_label(
+                        t.t(spec.title),
+                        spec.mnemonic,
+                        palette.text,
+                        mnemonics,
+                    )),
             );
         }
         bar = bar.child(menus.on_children_prepainted({

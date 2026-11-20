@@ -5,6 +5,8 @@
 
 use std::ops::Range;
 
+use crate::text::TextKey;
+
 /// 菜单命令（对应 egui 版 src/ui/menu.rs 的菜单项）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmd {
@@ -30,7 +32,7 @@ pub enum Cmd {
 pub enum MenuItem {
     Separator,
     Command {
-        label: &'static str,
+        label: TextKey,
         shortcut: &'static str,
         /// 菜单展开后直接按该键执行（原生行为：不需要 Alt）
         mnemonic: char,
@@ -42,7 +44,7 @@ use MenuItem::{Command, Separator};
 
 /// 一个顶层菜单；`items` 为空表示顶层命令按钮（点击直接执行）
 pub struct MenuSpec {
-    pub title: &'static str,
+    pub title: TextKey,
     /// Alt+该键展开 / 切换，与 Windows 原生菜单一致
     pub mnemonic: char,
     pub items: &'static [MenuItem],
@@ -50,18 +52,18 @@ pub struct MenuSpec {
 
 pub const MENUS: &[MenuSpec] = &[
     MenuSpec {
-        title: "文件",
+        title: TextKey::File,
         mnemonic: 'F',
         items: &[
             Command {
-                label: "打开文件",
+                label: TextKey::Open,
                 shortcut: "Ctrl+O",
                 mnemonic: 'O',
                 cmd: Cmd::Open,
             },
             Separator,
             Command {
-                label: "退出",
+                label: TextKey::Exit,
                 shortcut: "Alt+F4",
                 mnemonic: 'X',
                 cmd: Cmd::Exit,
@@ -69,49 +71,49 @@ pub const MENUS: &[MenuSpec] = &[
         ],
     },
     MenuSpec {
-        title: "查看",
+        title: TextKey::View,
         mnemonic: 'V',
         items: &[
             Command {
-                label: "适应窗口",
+                label: TextKey::Fit,
                 shortcut: "0",
                 mnemonic: '0',
                 cmd: Cmd::Fit,
             },
             Command {
-                label: "原始大小",
+                label: TextKey::OriginalSize,
                 shortcut: "1",
                 mnemonic: '1',
                 cmd: Cmd::Original,
             },
             Command {
-                label: "填充窗口",
+                label: TextKey::Fill,
                 shortcut: "2",
                 mnemonic: '2',
                 cmd: Cmd::Fill,
             },
             Separator,
             Command {
-                label: "顺时针旋转",
+                label: TextKey::RotateCw,
                 shortcut: "R",
                 mnemonic: 'R',
                 cmd: Cmd::RotateCw,
             },
             Command {
-                label: "逆时针旋转",
+                label: TextKey::RotateCcw,
                 shortcut: "Shift+R",
                 mnemonic: 'N',
                 cmd: Cmd::RotateCcw,
             },
             Separator,
             Command {
-                label: "全屏",
+                label: TextKey::Fullscreen,
                 shortcut: "F / F11",
                 mnemonic: 'U',
                 cmd: Cmd::Fullscreen,
             },
             Command {
-                label: "缩略图",
+                label: TextKey::Thumbnails,
                 shortcut: "T",
                 mnemonic: 'T',
                 cmd: Cmd::Thumbnails,
@@ -120,29 +122,29 @@ pub const MENUS: &[MenuSpec] = &[
     },
     // 顶层命令按钮（无下拉）
     MenuSpec {
-        title: "设置",
+        title: TextKey::Settings,
         mnemonic: 'S',
         items: &[],
     },
     MenuSpec {
-        title: "帮助",
+        title: TextKey::Help,
         mnemonic: 'H',
         items: &[
             Command {
-                label: "快捷键",
+                label: TextKey::Shortcuts,
                 shortcut: "",
                 mnemonic: 'K',
                 cmd: Cmd::Shortcuts,
             },
             Command {
-                label: "关于 FastView",
+                label: TextKey::About,
                 shortcut: "",
                 mnemonic: 'A',
                 cmd: Cmd::About,
             },
             Separator,
             Command {
-                label: "检查更新",
+                label: TextKey::CheckUpdate,
                 shortcut: "",
                 mnemonic: 'U',
                 cmd: Cmd::CheckUpdate,
