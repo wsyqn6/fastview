@@ -84,7 +84,8 @@ impl Spike {
 
         if let Some(image) = &self.image {
             area = area.child(self.render_image_layer(image, view, scale_factor));
-            if !self.chrome_hidden(window) {
+            // 拖放提示占用同一位置，避免和状态栏胶囊叠在一起
+            if !self.chrome_hidden(window) && !self.drop_hover {
                 area = area.child(self.render_status_bar(image, view, scale_factor, &palette));
             }
         } else {

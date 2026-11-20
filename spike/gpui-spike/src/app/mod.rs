@@ -32,9 +32,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Bounds, Context, ExternalPaths, FileDropEvent, FocusHandle, KeyDownEvent,
+    AnyElement, BoxShadow, Bounds, Context, ExternalPaths, FileDropEvent, FocusHandle, KeyDownEvent,
     ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, RenderImage, ScrollHandle,
-    Size, Subscription, Window, div, prelude::*, px, size,
+    Size, Subscription, Window, div, hsla, prelude::*, px, size,
 };
 
 use self::settings::Settings;
@@ -392,6 +392,8 @@ impl Render for Spike {
         let thumb_bar = self.show_thumbs.then(|| self.render_thumbnails(window, cx));
         let focus_handle = self.focus_handle.clone();
         let drop_hover = self.drop_hover;
+        let chrome = if chrome_hidden { 0.0 } else { TITLEBAR_HEIGHT };
+        let thumb_height = if self.show_thumbs { THUMB_BAR_HEIGHT } else { 0.0 };
 
         div()
             .id("app-root")
@@ -450,7 +452,9 @@ impl Render for Spike {
             .when_some(titlebar, |this, bar| this.child(bar))
             .child(self.render_viewer(window, cx))
             .when_some(thumb_bar, |this, bar| this.child(bar))
-            .when(drop_hover, |this| this.child(drop_overlay(&palette)))
+            .when(drop_hover, |this| {
+                this.child(drop_overlay(&palette, chrome, thumb_height))
+            })
             .when_some(menu_layer, |this, layer| this.child(layer))
             .when_some(settings_panel, |this, panel| this.child(panel))
             .when_some(help_panel, |this, panel| this.child(panel))
@@ -470,34 +474,72 @@ fn borderless_hint(palette: &Palette) -> AnyElement {
         .into_any_element()
 }
 
-/// 文件拖到窗口上时的高亮框与提示
-fn drop_overlay(palette: &Palette) -> AnyElement {
+/// 文件拖到内容区时的投放层（不覆盖标题栏与缩略图条）
+///
+/// 不引入新物件：范围用内发光暗示，提示复用状态栏胶囊的样式与位置。
+fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32) -> AnyElement {
+    let dark = palette.text.l > 0.5;
+    let glow = if dark {
+        hsla(0.0, 0.0, 1.0, 0.18)
+    } else {
+        hsla(0.0, 0.0, 0.0, 0.12)
+    };
+
     div()
         .absolute()
-        .inset_0()
-        .flex()
-        .items_center()
-        .justify_center()
+        .top(px(chrome))
+        .left(px(0.0))
+        .right(px(0.0))
+        .bottom(px(thumb_height))
         .child(
             div()
                 .absolute()
-                .inset(px(6.0))
-                .rounded(px(10.0))
-                .border_2()
-                .border_color(palette.accent.opacity(0.85))
-                .bg(palette.accent.opacity(0.05)),
+                .inset_0()
+                .bg(hsla(0.0, 0.0, 0.0, 0.05)),
         )
         .child(
             div()
-                .px(px(14.0))
-                .py(px(8.0))
-                .rounded(px(8.0))
-                .bg(palette.card_bg)
-                .border_1()
-                .border_color(palette.card_border)
-                .text_size(px(12.0))
-                .text_color(palette.text)
-                .child("松开以打开图片"),
+                .absolute()
+                .inset_0()
+                .rounded(px(12.0))
+                .shadow(vec![BoxShadow::new(px(0.0), px(0.0), glow)
+                    .blur_radius(px(12.0))
+                    .spread_radius(px(-2.0))
+                    .inset()]),
+        )
+        .child(
+            div()
+                .absolute()
+                .bottom(px(16.0))
+                .left(px(0.0))
+                .right(px(0.0))
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .px(px(12.0))
+                        .py(px(6.0))
+                        .rounded(px(8.0))
+                        .bg(palette.card_bg)
+                        .border_1()
+                        .border_color(palette.card_border)
+                        .text_size(px(12.0))
+                        .text_color(palette.text)
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.0))
+                                .child(
+                                    div()
+                                        .w(px(6.0))
+                                        .h(px(6.0))
+                                        .rounded_full()
+                                        .bg(palette.accent),
+                                )
+                                .child("松开以打开图片"),
+                        ),
+                ),
         )
         .into_any_element()
 }
