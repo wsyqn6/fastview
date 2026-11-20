@@ -3,10 +3,12 @@
 //! 只复用当前已解码纹理，不引入额外解码或缓存；几何全部由当前视口与查看状态推导。
 
 use gpui::{
-    AnyElement, Bounds, ObjectFit, Pixels, Point, Size, div, img, point, prelude::*, px, size,
+    AnyElement, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, Pixels,
+    Point, Size, Window, div, img, point, prelude::*, px, size,
 };
 
-use super::theme::{Palette, RADIUS_PANEL};
+use super::Spike;
+use super::theme::{Palette, RADIUS_PANEL, TITLEBAR_HEIGHT};
 use crate::viewer::{LoadedImage, ViewState};
 
 /// 卡片长边（逻辑像素）
@@ -108,6 +110,42 @@ fn highlight(base: Size<Pixels>, view: Size<Pixels>, view_state: &ViewState, lay
     Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
 }
 
+impl Spike {
+    /// 把 minimap 上的窗口坐标换算成图片坐标，并移动视口
+    pub(super) fn navigate_minimap(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(image) = self.image.as_ref() else {
+            return;
+        };
+        let view = self.view_size(window);
+        let base = image.logical_size(window.scale_factor());
+        let map = layout(base, view);
+        let chrome = if self.chrome_hidden(window) {
+            0.0
+        } else {
+            TITLEBAR_HEIGHT
+        };
+        // 鼠标事件是窗口坐标，viewer 原点在标题栏下方
+        let local = position - point(px(0.0), px(chrome));
+        let x: f32 = local.x.into();
+        let y: f32 = local.y.into();
+        let inner_x: f32 = map.inner_origin.x.into();
+        let inner_y: f32 = map.inner_origin.y.into();
+        let base_w: f32 = base.width.into();
+        let base_h: f32 = base.height.into();
+
+        let image_x = ((x - inner_x) / map.scale).clamp(0.0, base_w);
+        let image_y = ((y - inner_y) / map.scale).clamp(0.0, base_h);
+        self.view
+            .center_on(point(px(image_x), px(image_y)), view, base);
+        cx.notify();
+    }
+}
+
 /// 渲染 minimap 卡片
 pub(super) fn render(
     image: &LoadedImage,
@@ -115,12 +153,14 @@ pub(super) fn render(
     view_state: &ViewState,
     scale_factor: f32,
     palette: &Palette,
+    cx: &mut Context<Spike>,
 ) -> AnyElement {
     let base = image.logical_size(scale_factor);
     let map = layout(base, view);
     let mark = highlight(base, view, view_state, &map);
 
     div()
+        .id("minimap")
         .absolute()
         .left(map.origin.x)
         .top(map.origin.y)
@@ -131,6 +171,28 @@ pub(super) fn render(
         .border_1()
         .border_color(palette.card_border)
         .shadow_sm()
+        .occlude()
+        .cursor_pointer()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                this.minimap_drag = true;
+                this.navigate_minimap(event.position, window, cx);
+            }),
+        )
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+            if this.minimap_drag {
+                this.navigate_minimap(event.position, window, cx);
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                if std::mem::take(&mut this.minimap_drag) {
+                    cx.notify();
+                }
+            }),
+        )
         .child(
             div()
                 .absolute()

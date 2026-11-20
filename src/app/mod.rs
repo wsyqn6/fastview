@@ -124,6 +124,8 @@ pub struct Spike {
     accent: u32,
     /// 有文件拖到窗口上：整窗高亮
     drop_hover: bool,
+    /// 正在拖动 minimap：主图平移要短路
+    minimap_drag: bool,
     /// 菜单展开序号：变化时重放淡入动画
     menu_seq: u64,
     /// 状态栏是否常显（`S` 切换）；否则无操作后自动淡出
@@ -187,6 +189,7 @@ impl Spike {
             slider_bounds: Rc::new(RefCell::new(None)),
             accent,
             drop_hover: false,
+            minimap_drag: false,
             menu_seq: 0,
             status_pinned,
             status_shown: true,
@@ -462,7 +465,10 @@ impl Render for Spike {
                 cx.listener(|this, _, _, cx| {
                     this.finish_opacity_drag(cx);
                     // 文件拖拽结束时 exit 事件可能丢失，鼠标抬起兜底复位高亮
-                    if std::mem::take(&mut this.drop_hover) {
+                    let drop_reset = std::mem::take(&mut this.drop_hover);
+                    // 在 minimap 外松开也要结束导航拖动
+                    let map_reset = std::mem::take(&mut this.minimap_drag);
+                    if drop_reset || map_reset {
                         cx.notify();
                     }
                 }),

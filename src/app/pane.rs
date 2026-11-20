@@ -35,6 +35,11 @@ impl Spike {
             )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
                 this.touch_status(cx);
+                // minimap 导航期间不平移主图
+                if this.minimap_drag {
+                    this.drag_last = None;
+                    return;
+                }
                 if !event.dragging() {
                     this.drag_last = None;
                     return;
@@ -93,6 +98,7 @@ impl Spike {
                     &self.view,
                     scale_factor,
                     &palette,
+                    cx,
                 ));
             }
             // 拖放提示占用同一位置，避免和状态栏胶囊叠在一起
