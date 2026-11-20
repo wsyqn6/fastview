@@ -3,6 +3,7 @@
 use gpui::{Context, KeyDownEvent, Window, point, px};
 
 use super::Spike;
+use super::info_panel::InfoKind;
 use crate::menu;
 use crate::viewer;
 
@@ -97,6 +98,13 @@ impl Spike {
                 || (modifiers.shift && key == "/")
             {
                 self.close_help(cx);
+            }
+            return;
+        }
+        // 关于 / 检查更新
+        if self.info.is_some() {
+            if key.eq_ignore_ascii_case("escape") || key.eq_ignore_ascii_case("enter") {
+                self.close_info(cx);
             }
             return;
         }
@@ -229,7 +237,14 @@ impl Spike {
                 self.open_help(cx);
                 return;
             }
-            _ => {}
+            Cmd::About => {
+                self.open_info(InfoKind::About, cx);
+                return;
+            }
+            Cmd::CheckUpdate => {
+                self.open_info(InfoKind::Update, cx);
+                return;
+            }
         }
 
         eprintln!("[SPIKE] command {cmd:?}");

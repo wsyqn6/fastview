@@ -60,6 +60,7 @@ impl Spike {
             self.settings_drag = false;
             self.settings.save();
         }
+        self.info = None;
         self.help_open = true;
         cx.notify();
     }

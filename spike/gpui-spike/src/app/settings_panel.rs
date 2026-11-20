@@ -27,6 +27,8 @@ impl Spike {
         }
         self.open_menu = None;
         self.menu_selected = None;
+        self.help_open = false;
+        self.info = None;
         self.settings_open = true;
         cx.notify();
     }
