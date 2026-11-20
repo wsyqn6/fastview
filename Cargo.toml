@@ -5,16 +5,11 @@ description = "A fast, lightweight, and modern image viewer built with Rust"
 authors = ["FastView Team"]
 license = "MIT"
 repository = "https://github.com/wsyqn6/fastview"
-homepage = "https://wsyqn6.github.io/fastview"
 documentation = "https://wsyqn6.github.io/fastview"
-keywords = ["image", "viewer", "gui", "egui", "lightweight"]
+keywords = ["image", "viewer", "gui", "lightweight"]
 categories = ["multimedia::images", "gui"]
 edition = "2024"
-
-[workspace]
-members = [".", "updater"]
-# spike 是独立的实验 crate（gpui 评估），不参与主 workspace 构建
-exclude = ["spike"]
+publish = false
 
 [lints.rust]
 dead_code = "allow"
@@ -22,28 +17,43 @@ dead_code = "allow"
 [lints.clippy]
 too_many_arguments = "allow"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-eframe = "0.34"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff"] }
-rfd = "0.16"
+gpui = { package = "gpui-unofficial", version = "1.28.1" }
+gpui_platform = { package = "gpui-platform-gpui-unofficial", version = "1.28.1" }
+raw-window-handle = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
-once_cell = "1"
-lru = "0.12"
-rayon = "1"
-ureq = { version = "2", default-features = false, features = ["tls", "json"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "bmp",
+    "tiff",
+] }
 
-# Windows 平台配置：release 模式不显示控制台窗口
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Console"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+# WIC 缩放解码（DCT 1/2ⁿ）与 shell 缩略图缓存，windows-sys 的绑定不够用
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
+# 当前分支以开发效率优先，release 暂不做体积优化
 [profile.release]
-opt-level = "z"      # 体积优先
-codegen-units = 1
-lto = true
-strip = true
-panic = "abort"      # 关键!减小体积
+codegen-units = 16

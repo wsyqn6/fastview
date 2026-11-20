@@ -66,8 +66,6 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - **EXIF 方向**：WIC 不自动应用，`GetSize` 返回存储尺寸，方向需自己读 metadata 后旋转。
 - **首帧不使用 shell 缩略图**：冷进程 `SHCreateItemFromParsingName` 要 35~40 ms，且首次生成要 50~165 ms；它只用在缩略图条。
 
-测量工具：`spike/wic-probe`（无窗口 CLI），`cargo run --release -- <图片路径>`。
-
 ### 实施批次
 
 1. ✅ **首帧分级解码**：`spike/gpui-spike/src/decode`（`probe` → `pick_denom` → WIC 缩放 → 方向归一 + `image` 兜底）。8000×3000 实测 46 ms / 5.72 MB，20000×2000 实测 41 ms / 2.38 MB。
