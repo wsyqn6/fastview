@@ -71,8 +71,8 @@ impl Spike {
                 let base = this.base_size(window);
                 let dy = match event.delta {
                     ScrollDelta::Pixels(delta) => delta.y.into(),
-                    // 一行约 30 逻辑像素，一格滚轮（约 3 行）≈ 25%
-                    ScrollDelta::Lines(delta) => delta.y * 30.0,
+                    // gpui 在 Windows 上报 8 行/格；11px/行 ⇒ 一格 exp(8×11×0.0025)≈1.25，与 +/- 一致
+                    ScrollDelta::Lines(delta) => delta.y * 11.0,
                 };
                 if dy == 0.0 {
                     return;
