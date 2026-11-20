@@ -154,6 +154,14 @@ pub fn supports_system_backdrop(hwnd: HWND) -> bool {
     result == 0
 }
 
+/// 不支持该属性的系统（Win10）直接跳过，避免每次重设窗口都打错误日志
+fn set_system_backdrop(hwnd: HWND, value: u32) -> bool {
+    if !supports_system_backdrop(hwnd) {
+        return false;
+    }
+    set_attribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, value)
+}
+
 /// 设置系统背景材质
 ///
 /// 返回 `false` 表示当前系统不支持（22621 之前），调用方应改用 Win10 的
@@ -172,7 +180,7 @@ pub fn apply_backdrop(hwnd: HWND, backdrop: Backdrop) -> bool {
     } else {
         value
     };
-    set_attribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, effective)
+    set_system_backdrop(hwnd, effective)
 }
 
 /// 设置 Win10 老式亚克力（SWCA `ACCENT_ENABLE_ACRYLICBLURBEHIND`）
@@ -382,7 +390,7 @@ fn pause_backdrop(hwnd: HWND) {
         set_accent_policy(hwnd, ACCENT_ENABLE_BLURBEHIND);
     }
     if ACTIVE_BACKDROP.load(Ordering::Relaxed) != DWMSBT_NONE {
-        set_attribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_NONE);
+        let _ = set_system_backdrop(hwnd, DWMSBT_NONE);
     }
 }
 
@@ -394,7 +402,7 @@ fn resume_backdrop(hwnd: HWND) {
     }
     let value = ACTIVE_BACKDROP.load(Ordering::Relaxed);
     if value != DWMSBT_NONE {
-        set_attribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, value);
+        let _ = set_system_backdrop(hwnd, value);
     }
 }
 
