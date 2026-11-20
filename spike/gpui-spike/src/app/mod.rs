@@ -184,6 +184,20 @@ impl Spike {
         }
     }
 
+    /// 全屏时隐藏标题栏 / 菜单 / 状态栏，内容区占满窗口
+    pub(super) fn chrome_hidden(&self, window: &Window) -> bool {
+        window.is_fullscreen()
+    }
+
+    /// 全屏切换：收起菜单，避免留下看不见的展开状态
+    pub(super) fn toggle_fullscreen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_menu = None;
+        self.menu_selected = None;
+        self.touch_status(cx);
+        window.toggle_fullscreen();
+        cx.notify();
+    }
+
     /// 视口（标题栏以下、缩略图条以上）尺寸
     fn view_size(&self, window: &Window) -> Size<Pixels> {
         let viewport = window.viewport_size();
@@ -193,10 +207,12 @@ impl Spike {
         } else {
             0.0
         };
-        size(
-            viewport.width,
-            px((height - TITLEBAR_HEIGHT - bar).max(0.0)),
-        )
+        let chrome = if self.chrome_hidden(window) {
+            0.0
+        } else {
+            TITLEBAR_HEIGHT
+        };
+        size(viewport.width, px((height - chrome - bar).max(0.0)))
     }
 
     /// 当前图片的逻辑尺寸（无图时用 1×1 占位，避免除零）
@@ -352,8 +368,13 @@ impl Render for Spike {
         self.ensure_window_hooks(window, cx);
 
         let palette = self.palette(window);
-        let titlebar = self.render_titlebar(window, cx);
-        let menu_layer = self.render_menu_layer(window, cx);
+        let chrome_hidden = self.chrome_hidden(window);
+        let titlebar = (!chrome_hidden).then(|| self.render_titlebar(window, cx));
+        let menu_layer = if chrome_hidden {
+            None
+        } else {
+            self.render_menu_layer(window, cx)
+        };
         let settings_panel = self.render_settings_panel(window, cx);
         let help_panel = self.render_help_panel(window, cx);
         let thumb_bar = self.show_thumbs.then(|| self.render_thumbnails(window, cx));
@@ -414,7 +435,7 @@ impl Render for Spike {
                     }
                 }),
             )
-            .child(titlebar)
+            .when_some(titlebar, |this, bar| this.child(bar))
             .child(self.render_viewer(window, cx))
             .when_some(thumb_bar, |this, bar| this.child(bar))
             .when(drop_hover, |this| this.child(drop_overlay(&palette)))

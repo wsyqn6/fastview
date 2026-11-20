@@ -123,7 +123,7 @@ impl Spike {
 
         if key.eq_ignore_ascii_case("escape") {
             if window.is_fullscreen() {
-                window.toggle_fullscreen();
+                self.toggle_fullscreen(window, cx);
             }
             return;
         }
@@ -133,8 +133,8 @@ impl Spike {
             return;
         }
 
-        if plain && key.eq_ignore_ascii_case("f11") {
-            window.toggle_fullscreen();
+        if plain && (key.eq_ignore_ascii_case("f11") || key.eq_ignore_ascii_case("f")) {
+            self.toggle_fullscreen(window, cx);
             return;
         }
 
@@ -207,7 +207,7 @@ impl Spike {
                 cx.notify();
                 return;
             }
-            Cmd::Fullscreen => window.toggle_fullscreen(),
+            Cmd::Fullscreen => self.toggle_fullscreen(window, cx),
             Cmd::Fit => self.set_mode(viewer::ViewMode::Fit, window),
             Cmd::Original => self.set_mode(viewer::ViewMode::Original, window),
             Cmd::Fill => self.set_mode(viewer::ViewMode::Fill, window),

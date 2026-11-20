@@ -72,15 +72,21 @@ impl Spike {
                 }
                 // 每 1 逻辑像素滚动放大约 0.25%
                 let factor = (dy * 0.0025).exp();
-                let cursor = event.position - point(px(0.0), px(TITLEBAR_HEIGHT));
+                let chrome = if this.chrome_hidden(window) {
+                    0.0
+                } else {
+                    TITLEBAR_HEIGHT
+                };
+                let cursor = event.position - point(px(0.0), px(chrome));
                 this.view.zoom_at(factor, cursor, view, base);
                 cx.notify();
             }));
 
         if let Some(image) = &self.image {
-            area = area
-                .child(self.render_image_layer(image, view, scale_factor))
-                .child(self.render_status_bar(image, view, scale_factor, &palette));
+            area = area.child(self.render_image_layer(image, view, scale_factor));
+            if !self.chrome_hidden(window) {
+                area = area.child(self.render_status_bar(image, view, scale_factor, &palette));
+            }
         } else {
             area = area.child(self.render_placeholder(&palette));
         }

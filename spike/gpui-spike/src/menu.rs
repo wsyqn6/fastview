@@ -106,7 +106,7 @@ pub const MENUS: &[MenuSpec] = &[
             Separator,
             Command {
                 label: "全屏",
-                shortcut: "F11",
+                shortcut: "F / F11",
                 mnemonic: 'U',
                 cmd: Cmd::Fullscreen,
             },
