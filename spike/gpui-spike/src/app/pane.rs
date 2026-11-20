@@ -2,7 +2,7 @@
 
 use gpui::{
     AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, ScrollDelta,
-    ScrollEvent, Size, Window, div, hsla, img, point, prelude::*, px,
+    ScrollEvent, Size, Window, WindowControlArea, div, hsla, img, point, prelude::*, px,
 };
 
 use super::Spike;
@@ -89,6 +89,19 @@ impl Spike {
             }
         } else {
             area = area.child(self.render_placeholder(&palette));
+        }
+        if self.hide_chrome {
+            // 没有标题栏时保留顶部窄条拖动窗口，不占用图片平移区
+            area = area.child(
+                div()
+                    .id("borderless-drag")
+                    .absolute()
+                    .top(px(0.0))
+                    .left(px(0.0))
+                    .right(px(0.0))
+                    .h(px(8.0))
+                    .window_control_area(WindowControlArea::Drag),
+            );
         }
 
         area.into_any_element()

@@ -109,6 +109,8 @@ pub struct Spike {
     settings_open: bool,
     /// 快捷键说明浮层是否展开
     help_open: bool,
+    /// `V` 无边框模式：隐藏标题栏 / 菜单 / 状态栏，但保留任务栏窗口
+    hide_chrome: bool,
     /// 正在拖动透明度滑杆
     settings_drag: bool,
     /// 滑杆轨道的窗口坐标（prepaint 每帧更新）
@@ -171,6 +173,7 @@ impl Spike {
             settings,
             settings_open: false,
             help_open: false,
+            hide_chrome: false,
             settings_drag: false,
             slider_bounds: Rc::new(RefCell::new(None)),
             accent,
@@ -184,9 +187,18 @@ impl Spike {
         }
     }
 
-    /// 全屏时隐藏标题栏 / 菜单 / 状态栏，内容区占满窗口
+    /// 全屏 / 无边框时隐藏标题栏 / 菜单 / 状态栏，内容区占满窗口
     pub(super) fn chrome_hidden(&self, window: &Window) -> bool {
-        window.is_fullscreen()
+        window.is_fullscreen() || self.hide_chrome
+    }
+
+    /// `V`：无边框模式开关
+    pub(super) fn toggle_chrome(&mut self, cx: &mut Context<Self>) {
+        self.hide_chrome = !self.hide_chrome;
+        self.open_menu = None;
+        self.menu_selected = None;
+        self.touch_status(cx);
+        cx.notify();
     }
 
     /// 全屏切换：收起菜单，避免留下看不见的展开状态
@@ -442,7 +454,20 @@ impl Render for Spike {
             .when_some(menu_layer, |this, layer| this.child(layer))
             .when_some(settings_panel, |this, panel| this.child(panel))
             .when_some(help_panel, |this, panel| this.child(panel))
+            .when(self.hide_chrome, |this| this.child(borderless_hint(&palette)))
     }
+}
+
+/// 无边框模式下的恢复提示：不给 id，避免遮住图片交互
+fn borderless_hint(palette: &Palette) -> AnyElement {
+    div()
+        .absolute()
+        .bottom(px(10.0))
+        .left(px(12.0))
+        .text_size(px(11.0))
+        .text_color(palette.text_muted.opacity(0.65))
+        .child("按 V 恢复界面")
+        .into_any_element()
 }
 
 /// 文件拖到窗口上时的高亮框与提示

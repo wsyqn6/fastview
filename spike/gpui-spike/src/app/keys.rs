@@ -138,7 +138,11 @@ impl Spike {
             return;
         }
 
-        // 帮助不依赖有没有图片，放在图片守卫之前
+        // 无边框 / 帮助不依赖有没有图片，放在图片守卫之前
+        if plain && key.eq_ignore_ascii_case("v") {
+            self.toggle_chrome(cx);
+            return;
+        }
         if plain
             && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
         {
