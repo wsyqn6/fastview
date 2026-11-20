@@ -107,6 +107,8 @@ impl Spike {
             let generation = self.thumb_gen;
             self.load_thumbnails(generation, cx);
         }
+        self.settings.show_thumbs = self.show_thumbs;
+        self.settings.save();
         cx.notify();
     }
 

@@ -50,6 +50,12 @@ pub struct Settings {
     pub material: Material,
     #[serde(default = "default_opacity")]
     pub opacity: u8,
+    #[serde(default)]
+    pub show_thumbs: bool,
+    #[serde(default)]
+    pub status_pinned: bool,
+    #[serde(default)]
+    pub hide_chrome: bool,
 }
 
 impl Default for Settings {
@@ -59,6 +65,9 @@ impl Default for Settings {
             theme: Theme::System,
             material: Material::Acrylic,
             opacity: default_opacity(),
+            show_thumbs: false,
+            status_pinned: false,
+            hide_chrome: false,
         }
     }
 }

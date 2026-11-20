@@ -359,6 +359,37 @@ impl Spike {
                 &palette,
             ))
             .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(div().h(px(1.0)).bg(palette.separator))
+                    .child(toggle_row(
+                        "缩略图条",
+                        self.settings.show_thumbs,
+                        "settings-thumbs",
+                        &palette,
+                        |this, cx| this.toggle_thumbs(cx),
+                        cx,
+                    ))
+                    .child(toggle_row(
+                        "状态栏常显",
+                        self.settings.status_pinned,
+                        "settings-status",
+                        &palette,
+                        |this, cx| this.toggle_status_pin(cx),
+                        cx,
+                    ))
+                    .child(toggle_row(
+                        "无边框模式",
+                        self.settings.hide_chrome,
+                        "settings-chrome",
+                        &palette,
+                        |this, cx| this.toggle_chrome(cx),
+                        cx,
+                    )),
+            )
+            .child(
                 div().flex().justify_end().child(
                     div()
                         .id("settings-done")
@@ -396,6 +427,49 @@ impl Spike {
                 .into_any_element(),
         )
     }
+}
+
+/// 一行开关：点击复用快捷键的 toggle，状态与写盘逻辑只有一份
+fn toggle_row(
+    label: &'static str,
+    on: bool,
+    id: &'static str,
+    palette: &Palette,
+    on_click: impl Fn(&mut Spike, &mut Context<Spike>) + 'static,
+    cx: &mut Context<Spike>,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .h(px(32.0))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .text_color(palette.text_muted)
+                .child(label),
+        )
+        .child(
+            div()
+                .id(id)
+                .w(px(36.0))
+                .h(px(20.0))
+                .rounded_full()
+                .p(px(3.0))
+                .bg(if on { palette.accent } else { palette.track })
+                .flex()
+                .when(on, |switch| switch.justify_end())
+                .cursor_pointer()
+                .hover(|style| style.opacity(0.9))
+                .on_click(cx.listener(move |this, _, _, cx| on_click(this, cx)))
+                .child(
+                    div()
+                        .w(px(14.0))
+                        .h(px(14.0))
+                        .rounded_full()
+                        .bg(hsla(0.0, 0.0, 1.0, 1.0)),
+                ),
+        )
 }
 
 /// 分段控件外框：细底槽让「选中块」看起来是浮在上面的

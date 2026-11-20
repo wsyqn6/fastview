@@ -52,6 +52,8 @@ impl Spike {
                 self.start_status_timer(cx);
             }
         }
+        self.settings.status_pinned = self.status_pinned;
+        self.settings.save();
         cx.notify();
     }
 

@@ -142,6 +142,9 @@ impl Spike {
         let accent = win::system_accent().unwrap_or(theme::DEFAULT_ACCENT);
         #[cfg(not(windows))]
         let accent = theme::DEFAULT_ACCENT;
+        let show_thumbs = settings.show_thumbs;
+        let status_pinned = settings.status_pinned;
+        let hide_chrome = settings.hide_chrome;
 
         Self {
             hwnd,
@@ -160,7 +163,7 @@ impl Spike {
             folder: None,
             thumbs: HashMap::new(),
             thumb_gen: 0,
-            show_thumbs: false,
+            show_thumbs,
             thumb_scroll: ScrollHandle::new(),
             thumb_scrolled: None,
             cache: cache::ImageCache::new(IMAGE_BUDGET),
@@ -177,13 +180,13 @@ impl Spike {
             settings_open: false,
             help_open: false,
             info: None,
-            hide_chrome: false,
+            hide_chrome,
             settings_drag: false,
             slider_bounds: Rc::new(RefCell::new(None)),
             accent,
             drop_hover: false,
             menu_seq: 0,
-            status_pinned: false,
+            status_pinned,
             status_shown: true,
             status_seq: 0,
             status_deadline: None,
@@ -202,6 +205,8 @@ impl Spike {
         self.open_menu = None;
         self.menu_selected = None;
         self.touch_status(cx);
+        self.settings.hide_chrome = self.hide_chrome;
+        self.settings.save();
         cx.notify();
     }
 
