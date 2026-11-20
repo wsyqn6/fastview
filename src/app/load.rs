@@ -118,22 +118,24 @@ impl Spike {
                         elapsed,
                     }) => {
                         let display = meta.display_size();
-                        eprintln!(
-                            "[SPIKE] {name} → {}x{} (1/{}) via {} in {} ms, texture {}x{} {:.2} MB",
-                            display.0,
-                            display.1,
-                            preview.denom,
-                            preview.backend,
-                            elapsed.as_millis(),
-                            preview.width(),
-                            preview.height(),
-                            preview.byte_len() as f64 / 1_048_576.0
-                        );
+                        let denom = preview.denom;
+                        let backend = preview.backend;
+                        let tex_size = (preview.width(), preview.height());
+                        let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
                         this.view = viewer::ViewState::default();
                         this.error = None;
-                        let denom = preview.denom;
                         let texture = viewer::texture(preview);
                         this.present(path, meta, Rotation::None, denom, texture, window, cx);
+                        // 打点在 present 之后：此时缓存已更新，读到的才是上屏真实占用
+                        eprintln!(
+                            "[SPIKE] {name} → {}x{} (1/{denom}) via {backend} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
+                            display.0,
+                            display.1,
+                            elapsed.as_millis(),
+                            tex_size.0,
+                            tex_size.1,
+                            this.mem_usage()
+                        );
                         this.prefetch_neighbors(window, cx);
                     }
                     Err(message) => {
@@ -168,6 +170,9 @@ impl Spike {
         if rotation == current.rotation {
             return;
         }
+        // 提前克隆纹理与档位，结束对 self.image 的借用（后面要可变借用 self）
+        let source = Arc::clone(&current.image);
+        let current_denom = current.denom;
         let Some(meta) = self.cache.meta(&path) else {
             return;
         };
@@ -190,15 +195,35 @@ impl Spike {
                 pixel_size: decode::display_size(&meta, rotation),
                 denom,
                 rotation,
+                scalable: meta.scalable,
             });
             self.view = viewer::ViewState::default();
             cx.notify();
             return;
         }
 
-        let load_id = self.load_id;
         let name = folder::file_name(&path);
 
+        // 即时旋转当前纹理：90° 像素重排 ~20ms，远快于重解全图 120ms
+        // 走 present 让纹理纳入缓存管理（否则 atlas 无法回收）；denom 沿用当前档位，
+        // 下一帧 schedule_sharpen 会按目标角度重新选档，后台补到足够清晰。
+        if let Some(rotated) = viewer::rotate_texture(&source, clockwise) {
+            eprintln!("[SPIKE] {name} rotated to {rotation:?} (instant texture)");
+            self.view = viewer::ViewState::default();
+            self.present(
+                path.clone(),
+                meta,
+                rotation,
+                current_denom,
+                Arc::new(rotated),
+                window,
+                cx,
+            );
+            return;
+        }
+
+        // 纹理字节不可用（理论上不会发生）：退回原始重解路径
+        let load_id = self.load_id;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -209,18 +234,9 @@ impl Spike {
                 if this.rotate_id != rotate_id || this.load_id != load_id {
                     return;
                 }
-                let Ok(Decoded {
-                    meta,
-                    preview,
-                    elapsed,
-                }) = result
-                else {
+                let Ok(Decoded { meta, preview, .. }) = result else {
                     return;
                 };
-                eprintln!(
-                    "[SPIKE] {name} rotated to {rotation:?} in {} ms",
-                    elapsed.as_millis()
-                );
                 let denom = preview.denom;
                 let texture = viewer::texture(preview);
                 this.view = viewer::ViewState::default();
@@ -268,6 +284,7 @@ impl Spike {
             pixel_size: decode::display_size(&meta, rotation),
             denom,
             rotation,
+            scalable: meta.scalable,
         });
         if changed {
             // 换图后重新显示状态栏，并重置自动淡出计时
@@ -407,17 +424,18 @@ impl Spike {
                         preview,
                         elapsed,
                     }) => {
-                        eprintln!(
-                            "[SPIKE] sharpened to 1/{} in {} ms, texture {}x{} {:.2} MB",
-                            preview.denom,
-                            elapsed.as_millis(),
-                            preview.width(),
-                            preview.height(),
-                            preview.byte_len() as f64 / 1_048_576.0
-                        );
                         let denom = preview.denom;
+                        let tex_size = (preview.width(), preview.height());
+                        let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
                         let texture = viewer::texture(preview);
                         this.present(path, meta, rotation, denom, texture, window, cx);
+                        eprintln!(
+                            "[SPIKE] sharpened to 1/{denom} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
+                            elapsed.as_millis(),
+                            tex_size.0,
+                            tex_size.1,
+                            this.mem_usage()
+                        );
                     }
                     // 补档失败保持原图，不打扰用户；记下档位避免每帧重试
                     Err(_) => {

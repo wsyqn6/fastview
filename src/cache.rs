@@ -53,6 +53,11 @@ impl ImageCache {
         self.entries.contains_key(path)
     }
 
+    /// 当前占用 / 预算 / 图片条目数，供调试日志输出
+    pub fn usage(&self) -> (usize, usize, usize) {
+        (self.bytes, self.budget, self.entries.len())
+    }
+
     /// 查指定档位；命中会刷新 LRU
     pub fn get(&mut self, path: &Path, rotation: Rotation, denom: u32) -> Option<Arc<RenderImage>> {
         self.tick += 1;
@@ -68,6 +73,7 @@ impl ImageCache {
     /// 写入一个档位，返回需要回收的纹理
     ///
     /// `keep` 是当前正在显示的图，淘汰时永不选中它。
+    /// 非 0° 旋转档只留最新角度：旋转可即时重建，存四个角度会吃满预算。
     pub fn insert(
         &mut self,
         path: PathBuf,
@@ -89,8 +95,24 @@ impl ImageCache {
         cached.meta = meta;
         cached.last_used = tick;
 
-        // 同档位替换：旧纹理也要交回去回收
         let mut dropped = Vec::new();
+        // 淘汰同图的其它旋转角度，0° 基准保留（切图/预取仍按 0° 命中）
+        if rotation != Rotation::None {
+            let stale: Vec<(Rotation, u32)> = cached
+                .levels
+                .keys()
+                .filter(|(r, _)| *r != Rotation::None && *r != rotation)
+                .copied()
+                .collect();
+            for key in stale {
+                if let Some(level) = cached.levels.remove(&key) {
+                    self.bytes = self.bytes.saturating_sub(level.bytes);
+                    dropped.push(level.texture);
+                }
+            }
+        }
+
+        // 同档位替换：旧纹理也要交回去回收
         if let Some(old) = cached
             .levels
             .insert((rotation, denom), Level { texture, bytes })
@@ -152,6 +174,7 @@ mod tests {
         ImageMeta {
             storage: (width, height),
             orientation: image::metadata::Orientation::NoTransforms,
+            scalable: true,
         }
     }
 
@@ -256,5 +279,29 @@ mod tests {
     fn sizes_match_render_image() {
         let texture = texture(100, 50);
         assert_eq!(texture_bytes(&texture), 100 * 50 * 4);
+    }
+
+    #[test]
+    fn rotation_keeps_base_and_drops_old_angle() {
+        let mut cache = ImageCache::new(64 * 1024 * 1024);
+        let path = PathBuf::from("a.jpg");
+        let m = meta(64, 64);
+
+        cache.insert(path.clone(), m, Rotation::None, 2, texture(32, 32), &path);
+        cache.insert(path.clone(), m, Rotation::Cw90, 2, texture(32, 32), &path);
+        // 换到 180°：90° 应被淘汰，0° 基准保留
+        let dropped = cache.insert(
+            path.clone(),
+            m,
+            Rotation::Cw180,
+            2,
+            texture(32, 32),
+            &path,
+        );
+
+        assert_eq!(dropped.len(), 1, "旧旋转角度需回收");
+        assert!(cache.get(&path, Rotation::None, 2).is_some(), "0° 基准保留");
+        assert!(cache.get(&path, Rotation::Cw90, 2).is_none(), "90° 被淘汰");
+        assert!(cache.get(&path, Rotation::Cw180, 2).is_some(), "新角度在缓存");
     }
 }

@@ -15,6 +15,8 @@ use image::metadata::Orientation;
 
 /// WIC 支持的最大分频；JPEG 的 DCT 缩放只能是 1/2ⁿ
 const MAX_DENOM: u32 = 8;
+/// gpui atlas 单边上限，超过则纹理分配失败
+const ATLAS_LIMIT: u32 = 16384;
 
 /// 用户旋转（顺时针），在 EXIF 方向归一之后应用
 ///
@@ -58,6 +60,8 @@ impl Rotation {
 pub struct ImageMeta {
     pub storage: (u32, u32),
     pub orientation: Orientation,
+    /// 是否支持 WIC 缩放解码（仅 JPEG）。其余格式全解码，denom 恒为 1
+    pub scalable: bool,
 }
 
 impl ImageMeta {
@@ -111,6 +115,8 @@ pub fn probe(path: &Path) -> Result<ImageMeta, String> {
         .map_err(|err| format!("无法打开文件：{err}"))?
         .with_guessed_format()
         .map_err(|err| format!("无法识别格式：{err}"))?;
+    // 只有 JPEG 的 WIC 后端能 DCT 缩放；其余格式全解码，选档无意义
+    let scalable = matches!(reader.format(), Some(image::ImageFormat::Jpeg));
     let mut decoder = reader
         .into_decoder()
         .map_err(|err| format!("解码器初始化失败：{err}"))?;
@@ -123,15 +129,16 @@ pub fn probe(path: &Path) -> Result<ImageMeta, String> {
     Ok(ImageMeta {
         storage,
         orientation,
+        scalable,
     })
 }
 
 /// 选出仍能覆盖 `need_px` 的最大分频（分频越大解码越快）
 ///
-/// 允许 5% 的插值放大：相邻档位的像素量差 4 倍，为了 0.4% 的差距把整图
-/// 解一遍不划算（实测 1928px 需求会从 1/2 的 7.9 MB 跳到 1/1 的 31.6 MB）。
+/// 允许 7% 的插值放大：相邻档位的像素量差 4 倍，为几个百分点把整图
+/// 解一遍不划算（实测 2160px 源、need 1149px 时，1/2 档插值放大仅 6.4%）。
 pub fn pick_denom(width: u32, need_px: u32) -> u32 {
-    const UPSAMPLE_TOLERANCE: f32 = 1.05;
+    const UPSAMPLE_TOLERANCE: f32 = 1.07;
 
     let need = need_px.max(1) as f32;
     let mut denom = MAX_DENOM;
@@ -146,11 +153,24 @@ pub fn pick_denom(width: u32, need_px: u32) -> u32 {
 
 /// 按显示宽度对应的源尺寸选档（EXIF 与用户旋转都可能交换宽高）
 pub fn pick_denom_for(meta: &ImageMeta, rotation: Rotation, need_px: u32) -> u32 {
+    // 非缩放格式：全解码一次，档位只由 atlas 上限决定，与视口无关
+    if !meta.scalable {
+        return atlas_denom(meta.storage);
+    }
     let swaps = swaps_axes(meta.orientation) ^ rotation.swaps_axes();
     pick_denom(
         if swaps { meta.storage.1 } else { meta.storage.0 },
         need_px,
     )
+}
+
+/// 单边不超过 gpui atlas 上限的最小 1/2ⁿ 分频
+fn atlas_denom((w, h): (u32, u32)) -> u32 {
+    let mut denom = 1;
+    while w / denom > ATLAS_LIMIT || h / denom > ATLAS_LIMIT {
+        denom *= 2;
+    }
+    denom
 }
 
 /// 按目标宽度解码一张预览
@@ -167,8 +187,13 @@ pub fn load_preview(
     let tw = (sw / denom).max(1);
     let th = (sh / denom).max(1);
 
+    // 非缩放格式直接全解码，不再试 WIC（cast 注定失败，只是白费一次 COM 初始化）
     #[cfg(windows)]
-    let wic_result = wic::decode_scaled(path, tw, th);
+    let wic_result = if meta.scalable {
+        wic::decode_scaled(path, tw, th)
+    } else {
+        Err("skip wic".into())
+    };
     #[cfg(not(windows))]
     let wic_result: Result<(Vec<u8>, u32, u32), String> = Err("WIC 仅 Windows 可用".into());
 
@@ -240,8 +265,11 @@ mod tests {
     fn tolerance_avoids_denom_jump() {
         // 实测：1928px 需求只比 1/2 档的 1920 多 8px，不值得为此解全图
         assert_eq!(pick_denom(3840, 1928), 2);
-        // 超出 5% 容差则必须升档
+        // 旋转 90° 后源宽 2160，need 1149：1/2 档放大 6.4%，落在 7% 容差内
+        assert_eq!(pick_denom(2160, 1149), 2);
+        // 超出 7% 容差则必须升档
         assert_eq!(pick_denom(3840, 2100), 1);
+        assert_eq!(pick_denom(2160, 1200), 1);
     }
 
     #[test]
@@ -273,8 +301,32 @@ mod tests {
         let meta = ImageMeta {
             storage: (4000, 2000),
             orientation: image::metadata::Orientation::NoTransforms,
+            scalable: true,
         };
         assert_eq!(pick_denom_for(&meta, Rotation::None, 1000), 4);
         assert_eq!(pick_denom_for(&meta, Rotation::Cw90, 1000), 2);
+    }
+
+    #[test]
+    fn non_scalable_always_full_size() {
+        let meta = ImageMeta {
+            storage: (3840, 2160),
+            orientation: image::metadata::Orientation::NoTransforms,
+            scalable: false,
+        };
+        // 非缩放格式：视口多小都全解码，不触发多级补档
+        assert_eq!(pick_denom_for(&meta, Rotation::None, 200), 1);
+        assert_eq!(pick_denom_for(&meta, Rotation::Cw90, 4000), 1);
+    }
+
+    #[test]
+    fn non_scalable_capped_by_atlas() {
+        let meta = ImageMeta {
+            storage: (20000, 2000),
+            orientation: image::metadata::Orientation::NoTransforms,
+            scalable: false,
+        };
+        // 20000 超过 atlas 上限，必须降到 1/2 才能上传
+        assert_eq!(pick_denom_for(&meta, Rotation::None, 200), 2);
     }
 }

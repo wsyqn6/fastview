@@ -19,7 +19,8 @@ fn err(error: windows::core::Error) -> String {
 
 /// 解码到接近 `(tw, th)` 的尺寸，返回 BGRA 像素（自上而下）
 ///
-/// 若格式不支持缩放解码（PNG 等），WIC 仍会正常工作，只是退化为全解码 + 缩放。
+/// 调用方只对支持 `IWICBitmapSourceTransform` 的格式（实测 JPEG）走这里；
+/// 其余格式由 `mod.rs` 直接分流到 `image` 全解码，不会进本函数。
 pub fn decode_scaled(path: &Path, tw: u32, th: u32) -> Result<(Vec<u8>, u32, u32), String> {
     crate::com::ensure()?;
 

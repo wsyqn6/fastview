@@ -29,6 +29,25 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::app::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
 
+/// 进程工作集 / 峰值工作集（MB）
+pub(crate) fn memory_mb() -> Option<(usize, usize)> {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: counters 与 cb 匹配；GetCurrentProcess 返回伪句柄，无需关闭
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    (ok != 0).then(|| {
+        (
+            counters.WorkingSetSize / 1_048_576,
+            counters.PeakWorkingSetSize / 1_048_576,
+        )
+    })
+}
+
 /// DWMWA_NCRENDERING_POLICY
 const DWMWA_NCRENDERING_POLICY: u32 = 2;
 /// DWMNCRP_DISABLED：关掉 DWM native frame / shadow

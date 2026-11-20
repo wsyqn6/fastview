@@ -270,6 +270,23 @@ impl Spike {
         (width * window.scale_factor()).round().max(1.0) as u32
     }
 
+    /// 进程 RSS / 纹理缓存占用摘要，供调试日志复用
+    fn mem_usage(&self) -> String {
+        let (bytes, budget, files) = self.cache.usage();
+        #[cfg(windows)]
+        let rss = match win::memory_mb() {
+            Some((now, peak)) => format!("RSS {now}/{peak} MB · "),
+            None => String::new(),
+        };
+        #[cfg(not(windows))]
+        let rss = String::new();
+        format!(
+            "{rss}cache {:.1}/{:.0} MB · {files} files",
+            bytes as f64 / 1_048_576.0,
+            budget as f64 / 1_048_576.0
+        )
+    }
+
     /// 首帧日志 + 窗口状态变化时重设窗口外观
     ///
     /// 窗口真正显示之后 DWM 会重建一次框架，创建时设的边框与材质会被还原，
@@ -279,8 +296,9 @@ impl Spike {
         if first_frame {
             self.first_frame_logged = true;
             eprintln!(
-                "[SPIKE] first frame after {} ms",
-                self.started_at.elapsed().as_millis()
+                "[SPIKE] first frame after {} ms · {}",
+                self.started_at.elapsed().as_millis(),
+                self.mem_usage()
             );
         }
 

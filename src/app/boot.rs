@@ -20,17 +20,21 @@ pub fn run() {
     let started_at = Instant::now();
     // 配置在开窗之前读：材质与透明度决定首帧用透明还是实色背景
     let settings = Settings::load();
+    let after_settings = Instant::now();
     // 材质只有 Windows 有系统背景可透；其他平台与排查模式下退化为实色
     let translucent = super::translucent(&settings);
     let initial_path = std::env::args_os().nth(1).map(PathBuf::from);
 
-    application().run(move |cx: &mut App| {
+    // application() 构造 gpui 平台（WindowsPlatform / DirectWrite），
+    // run() 才启动消息循环并回调；分开计时才能定位 app 阶段的真实归属
+    let app = application();
+    let after_app_new = Instant::now();
+    app.run(move |cx: &mut App| {
+        let after_app = Instant::now();
+        let centered = Bounds::centered(None, size(px(960.0), px(640.0)), cx);
+        let after_bounds = Instant::now();
         let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                None,
-                size(px(960.0), px(640.0)),
-                cx,
-            ))),
+            window_bounds: Some(WindowBounds::Windowed(centered)),
             // 自绘标题栏：菜单与窗口按钮都放进标题栏，避免多占一行
             titlebar: Some(TitlebarOptions {
                 title: Some("FastView".into()),
@@ -52,6 +56,7 @@ pub fn run() {
         };
 
         cx.open_window(options, move |window, cx| {
+            let after_window = Instant::now();
             let hwnd = native_handle(window);
             #[cfg(windows)]
             if hwnd != 0 {
@@ -71,8 +76,21 @@ pub fn run() {
                 // 去 native frame、保留边缘缩放，并在拖动时降级模糊。
                 win::install_window_hooks(raw);
             }
+            let after_native = Instant::now();
 
             let view = cx.new(|cx| Spike::new(hwnd, started_at, settings, cx));
+            let after_view = Instant::now();
+            eprintln!(
+                "[SPIKE] boot {} ms: settings {} · app_new {} · app_run {} · bounds {} · open_window {} · native {} · view {}",
+                after_view.duration_since(started_at).as_millis(),
+                after_settings.duration_since(started_at).as_millis(),
+                after_app_new.duration_since(after_settings).as_millis(),
+                after_app.duration_since(after_app_new).as_millis(),
+                after_bounds.duration_since(after_app).as_millis(),
+                after_window.duration_since(after_bounds).as_millis(),
+                after_native.duration_since(after_window).as_millis(),
+                after_view.duration_since(after_native).as_millis(),
+            );
 
             // 让内容区直接接收键盘快捷键
             let handle = view.read(cx).focus_handle.clone();

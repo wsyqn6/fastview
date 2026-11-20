@@ -29,6 +29,8 @@ pub struct LoadedImage {
     pub denom: u32,
     /// 当前纹理已应用的用户旋转（切图时重置）
     pub rotation: Rotation,
+    /// 是否支持缩放解码；false 时纹理已是全尺寸，禁止补档
+    pub scalable: bool,
 }
 
 impl LoadedImage {
@@ -46,13 +48,31 @@ impl LoadedImage {
 
     /// 当前纹理是否已不足以覆盖 `need_px`（需要补更清晰的一档）
     pub fn needs_sharper(&self, need_px: u32) -> bool {
-        pick_denom(self.pixel_size.0, need_px) < self.denom
+        // 非缩放格式一次解到全尺寸（或 atlas 上限），再补档只会重复全解码
+        self.scalable && pick_denom(self.pixel_size.0, need_px) < self.denom
     }
 }
 
 /// 把解码结果转成可上屏、可缓存的纹理
 pub fn texture(preview: Preview) -> Arc<RenderImage> {
     Arc::new(RenderImage::new(vec![image::Frame::new(preview.buffer)]))
+}
+
+/// 复用已解码纹理的像素做 90° 旋转，省掉重新解码文件
+///
+/// 字节是 BGRA，但旋转只搬像素不动通道，借用 `RgbaImage` 即可。
+/// `as_bytes()` 需拷贝一份（8MB 级），仍远快于整图解码。
+pub fn rotate_texture(source: &RenderImage, clockwise: bool) -> Option<RenderImage> {
+    let size = source.size(0);
+    let (w, h) = (size.width.0.max(0) as u32, size.height.0.max(0) as u32);
+    let bytes = source.as_bytes(0)?;
+    let buffer = image::RgbaImage::from_raw(w, h, bytes.to_vec())?;
+    let rotated = if clockwise {
+        image::imageops::rotate90(&buffer)
+    } else {
+        image::imageops::rotate270(&buffer)
+    };
+    Some(RenderImage::new(vec![image::Frame::new(rotated)]))
 }
 
 /// 缩放方式
