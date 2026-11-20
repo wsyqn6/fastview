@@ -10,42 +10,59 @@ use gpui::{
 
 use super::Spike;
 use super::theme::{Palette, RADIUS_ITEM, RADIUS_PANEL};
+use crate::text::{Text, TextKey};
 
 /// 面板宽度：两列分组
 const PANEL_WIDTH: f32 = 460.0;
 
+/// 按键标签：字面量无需翻译，中文描述走文案表
+#[derive(Clone, Copy)]
+enum KeyLabel<'a> {
+    Raw(&'a str),
+    I18n(TextKey),
+}
+
 /// 左列：文件 / 查看
-const LEFT: &[(&str, &[(&str, &str)])] = &[
-    ("文件", &[("打开文件", "Ctrl+O"), ("设置", "Ctrl+,")]),
+const LEFT: &[(TextKey, &[(TextKey, KeyLabel)])] = &[
     (
-        "查看",
+        TextKey::GroupFile,
         &[
-            ("适应窗口", "0"),
-            ("原始大小", "1"),
-            ("填充窗口", "2"),
-            ("顺时针旋转", "R"),
-            ("逆时针旋转", "Shift+R"),
-            ("放大 / 缩小", "+ / -"),
-            ("以光标缩放", "滚轮"),
-            ("上一张 / 下一张", "← / →"),
-            ("平移", "拖拽"),
-            ("缩略图", "T"),
-            ("状态栏常显", "S"),
+            (TextKey::ActOpen, KeyLabel::Raw("Ctrl+O")),
+            (TextKey::ActSettings, KeyLabel::Raw("Ctrl+,")),
+        ],
+    ),
+    (
+        TextKey::GroupView,
+        &[
+            (TextKey::ActFit, KeyLabel::Raw("0")),
+            (TextKey::ActOriginal, KeyLabel::Raw("1")),
+            (TextKey::ActFill, KeyLabel::Raw("2")),
+            (TextKey::ActRotateCw, KeyLabel::Raw("R")),
+            (TextKey::ActRotateCcw, KeyLabel::Raw("Shift+R")),
+            (TextKey::ActZoom, KeyLabel::Raw("+ / -")),
+            (TextKey::ActZoomCursor, KeyLabel::I18n(TextKey::KeyWheel)),
+            (TextKey::ActStep, KeyLabel::Raw("← / →")),
+            (TextKey::ActPan, KeyLabel::I18n(TextKey::KeyDrag)),
+            (TextKey::ActThumbnails, KeyLabel::Raw("T")),
+            (TextKey::ActStatus, KeyLabel::Raw("S")),
         ],
     ),
 ];
 
 /// 右列：窗口 / 帮助
-const RIGHT: &[(&str, &[(&str, &str)])] = &[
+const RIGHT: &[(TextKey, &[(TextKey, KeyLabel)])] = &[
     (
-        "窗口",
+        TextKey::GroupWindow,
         &[
-            ("全屏", "F / F11"),
-            ("无边框", "V"),
-            ("退出全屏 / 关闭浮层", "Esc"),
+            (TextKey::ActFullscreen, KeyLabel::Raw("F / F11")),
+            (TextKey::ActBorderless, KeyLabel::Raw("V")),
+            (TextKey::ActExitFullscreen, KeyLabel::Raw("Esc")),
         ],
     ),
-    ("帮助", &[("快捷键", "H / ?")]),
+    (
+        TextKey::GroupHelp,
+        &[(TextKey::ActShortcuts, KeyLabel::Raw("H / ?"))],
+    ),
 ];
 
 impl Spike {
@@ -88,6 +105,7 @@ impl Spike {
             return None;
         }
         let palette = self.palette(window);
+        let t = self.text();
 
         let backdrop = div()
             .absolute()
@@ -127,21 +145,21 @@ impl Spike {
                             .text_size(px(13.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(palette.text)
-                            .child("快捷键"),
+                            .child(t.t(TextKey::ShortcutsTitle)),
                     )
                     .child(
                         div()
                             .text_size(px(11.0))
                             .text_color(palette.text_muted)
-                            .child("H / Esc 关闭"),
+                            .child(t.t(TextKey::ShortcutsClose)),
                     ),
             )
             .child(
                 div()
                     .flex()
                     .gap(px(28.0))
-                    .child(column(LEFT, &palette))
-                    .child(column(RIGHT, &palette)),
+                    .child(column(LEFT, t, &palette))
+                    .child(column(RIGHT, t, &palette)),
             );
 
         Some(
@@ -164,30 +182,30 @@ impl Spike {
 }
 
 /// 一列分组
-fn column(groups: &[(&str, &[(&str, &str)])], palette: &Palette) -> Div {
+fn column(groups: &[(TextKey, &[(TextKey, KeyLabel)])], t: Text, palette: &Palette) -> Div {
     let mut column = div().flex().flex_col().gap(px(14.0)).flex_1();
     for (title, rows) in groups {
-        column = column.child(group(title, rows, palette));
+        column = column.child(group(*title, rows, t, palette));
     }
     column
 }
 
 /// 一个分组：标题 + 若干「动作 / 按键」
-fn group(title: &str, rows: &[(&str, &str)], palette: &Palette) -> Div {
+fn group(title: TextKey, rows: &[(TextKey, KeyLabel)], t: Text, palette: &Palette) -> Div {
     let mut group = div().flex().flex_col().gap(px(2.0)).child(
         div()
             .mb(px(4.0))
             .text_size(px(11.0))
             .text_color(palette.text_muted)
-            .child(title.to_string()),
+            .child(t.t(title)),
     );
     for (action, keys) in rows {
-        group = group.child(row(action, keys, palette));
+        group = group.child(row(*action, *keys, t, palette));
     }
     group
 }
 
-fn row(action: &str, keys: &str, palette: &Palette) -> Div {
+fn row(action: TextKey, keys: KeyLabel, t: Text, palette: &Palette) -> Div {
     div()
         .flex()
         .items_center()
@@ -197,7 +215,7 @@ fn row(action: &str, keys: &str, palette: &Palette) -> Div {
             div()
                 .text_size(px(12.0))
                 .text_color(palette.text)
-                .child(action.to_string()),
+                .child(t.t(action)),
         )
         .child(
             div()
@@ -207,6 +225,9 @@ fn row(action: &str, keys: &str, palette: &Palette) -> Div {
                 .bg(palette.hover)
                 .text_size(px(11.0))
                 .text_color(palette.text_muted)
-                .child(keys.to_string()),
+                .child(match keys {
+                    KeyLabel::Raw(label) => label.to_string(),
+                    KeyLabel::I18n(key) => t.t(key).to_string(),
+                }),
         )
 }

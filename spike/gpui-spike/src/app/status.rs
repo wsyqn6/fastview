@@ -13,6 +13,7 @@ use gpui::{
 use super::Spike;
 use super::theme::{Palette, RADIUS_PANEL};
 use crate::decode::Rotation;
+use crate::text::TextKey;
 use crate::viewer;
 
 /// 无操作多久后开始淡出（信息变多后给足阅读时间）
@@ -138,6 +139,7 @@ impl Spike {
         let percent = self.view.percent(view, base);
         // 显隐切换时才换动画方向，平时不动
         let shown = self.status_shown;
+        let t = self.text();
 
         // 一行、最多三块：序号 / 尺寸 / 模式 / 百分比
         let mut row = div().flex().items_center().gap(px(10.0));
@@ -163,7 +165,11 @@ impl Spike {
             );
         }
         if let Some(mode) = zoom_mode_label(self.view.mode) {
-            row = row.child(div().text_color(palette.text_muted).child(mode));
+            row = row.child(
+                div()
+                    .text_color(palette.text_muted)
+                    .child(t.t(mode)),
+            );
         }
         row = row.child(
             div()
@@ -211,10 +217,10 @@ fn rotation_degrees(rotation: Rotation) -> u32 {
 }
 
 /// 非默认缩放模式才提示，避免常驻噪音
-fn zoom_mode_label(mode: viewer::ViewMode) -> Option<&'static str> {
+fn zoom_mode_label(mode: viewer::ViewMode) -> Option<TextKey> {
     match mode {
-        viewer::ViewMode::Original => Some("原始"),
-        viewer::ViewMode::Fill => Some("填充"),
+        viewer::ViewMode::Original => Some(TextKey::ModeOriginal),
+        viewer::ViewMode::Fill => Some(TextKey::ModeFill),
         _ => None,
     }
 }

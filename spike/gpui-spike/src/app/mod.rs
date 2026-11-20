@@ -42,7 +42,7 @@ use self::settings::Settings;
 use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
-use crate::text::Text;
+use crate::text::{Text, TextKey};
 use crate::{cache, folder, viewer};
 
 pub use boot::run;
@@ -395,6 +395,7 @@ impl Render for Spike {
         self.ensure_window_hooks(window, cx);
 
         let palette = self.palette(window);
+        let t = self.text();
         let chrome_hidden = self.chrome_hidden(window);
         let titlebar = (!chrome_hidden).then(|| self.render_titlebar(window, cx));
         let menu_layer = if chrome_hidden {
@@ -469,32 +470,32 @@ impl Render for Spike {
             .child(self.render_viewer(window, cx))
             .when_some(thumb_bar, |this, bar| this.child(bar))
             .when(drop_hover, |this| {
-                this.child(drop_overlay(&palette, chrome, thumb_height))
+                this.child(drop_overlay(&palette, chrome, thumb_height, t))
             })
             .when_some(menu_layer, |this, layer| this.child(layer))
             .when_some(settings_panel, |this, panel| this.child(panel))
             .when_some(help_panel, |this, panel| this.child(panel))
             .when_some(info_panel, |this, panel| this.child(panel))
-            .when(self.hide_chrome, |this| this.child(borderless_hint(&palette)))
+            .when(self.hide_chrome, |this| this.child(borderless_hint(&palette, t)))
     }
 }
 
 /// 无边框模式下的恢复提示：不给 id，避免遮住图片交互
-fn borderless_hint(palette: &Palette) -> AnyElement {
+fn borderless_hint(palette: &Palette, t: Text) -> AnyElement {
     div()
         .absolute()
         .bottom(px(10.0))
         .left(px(12.0))
         .text_size(px(11.0))
         .text_color(palette.text_muted.opacity(0.65))
-        .child("按 V 恢复界面")
+        .child(t.t(TextKey::RestoreHint))
         .into_any_element()
 }
 
 /// 文件拖到内容区时的投放层（不覆盖标题栏与缩略图条）
 ///
 /// 不引入新物件：范围用内发光暗示，提示复用状态栏胶囊的样式与位置。
-fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32) -> AnyElement {
+fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32, t: Text) -> AnyElement {
     let dark = palette.text.l > 0.5;
     let glow = if dark {
         hsla(0.0, 0.0, 1.0, 0.18)
@@ -554,7 +555,7 @@ fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32) -> AnyElement
                                         .rounded_full()
                                         .bg(palette.accent),
                                 )
-                                .child("松开以打开图片"),
+                                .child(t.t(TextKey::DropHint)),
                         ),
                 ),
         )

@@ -8,8 +8,6 @@ use crate::app::settings::Language;
 macro_rules! strings {
     ($($key:ident => $zh:expr, $en:expr;)*) => {
         /// 可本地化的文案键
-        // 部分键留给下一提交迁移，暂未全部构造
-        #[allow(dead_code)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum TextKey {
             $($key,)*
@@ -95,6 +93,8 @@ strings! {
     ActRotateCcw => "逆时针旋转", "Rotate left";
     ActZoom => "放大 / 缩小", "Zoom in / out";
     ActZoomCursor => "以光标缩放", "Zoom at cursor";
+    KeyWheel => "滚轮", "Wheel";
+    KeyDrag => "拖拽", "Drag";
     ActStep => "上一张 / 下一张", "Previous / Next";
     ActPan => "平移", "Pan";
     ActThumbnails => "缩略图", "Thumbnails";
@@ -110,4 +110,20 @@ strings! {
     AboutStage => "Rust + GPUI 实验版本", "Rust + GPUI experimental build";
     AboutFeatures => "分级解码 · 本地缓存 · 拖拽打开", "Tiered decoding · local cache · drag & drop";
     UpdateBody => "当前为实验版本，暂未接入更新服务。", "Experimental build; update service is not available yet.";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Language, Text, TextKey};
+
+    #[test]
+    fn picks_language_text() {
+        assert_eq!(Text::new(Language::Chinese).t(TextKey::File), "文件");
+        assert_eq!(Text::new(Language::English).t(TextKey::File), "File");
+    }
+
+    #[test]
+    fn system_resolves_to_a_concrete_language() {
+        assert!(!matches!(Language::System.effective(), Language::System));
+    }
 }

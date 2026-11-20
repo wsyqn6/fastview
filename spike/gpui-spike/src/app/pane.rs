@@ -7,6 +7,7 @@ use gpui::{
 
 use super::Spike;
 use super::theme::{Palette, TITLEBAR_HEIGHT};
+use crate::text::TextKey;
 use crate::viewer;
 
 impl Spike {
@@ -130,14 +131,16 @@ impl Spike {
 
     /// 无图 / 加载中 / 出错时的占位
     fn render_placeholder(&self, palette: &Palette) -> AnyElement {
+        let t = self.text();
         let (title, hint) = if self.loading {
-            ("加载中…".to_string(), String::new())
+            (t.t(TextKey::Loading).to_string(), String::new())
         } else if let Some(error) = &self.error {
+            // 错误详情来自解码层，属于诊断信息，不做本地化
             (error.clone(), String::new())
         } else {
             (
-                "拖入图片，或按 Ctrl+O 打开".to_string(),
-                "支持 JPEG / PNG / WebP / GIF / BMP / TIFF".to_string(),
+                t.t(TextKey::DropOrOpen).to_string(),
+                t.t(TextKey::Formats).to_string(),
             )
         };
         let title_color = if self.error.is_some() {

@@ -11,6 +11,7 @@ use gpui::{Context, PathPromptOptions, RenderImage, Window};
 
 use super::Spike;
 use crate::decode::{self, ImageMeta, Preview, Rotation};
+use crate::text::TextKey;
 use crate::{folder, viewer};
 
 /// 后台 probe + 解码的结果
@@ -43,7 +44,7 @@ impl Spike {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("打开图片".into()),
+            prompt: Some(self.text().t(TextKey::OpenPrompt).into()),
         });
 
         cx.spawn(async move |this, cx| {

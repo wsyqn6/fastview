@@ -8,6 +8,7 @@ use gpui::{
 
 use super::Spike;
 use super::theme::{RADIUS_ITEM, RADIUS_PANEL};
+use crate::text::TextKey;
 
 #[derive(Clone, Copy)]
 pub(super) enum InfoKind {
@@ -41,19 +42,17 @@ impl Spike {
     ) -> Option<AnyElement> {
         let kind = self.info?;
         let palette = self.palette(window);
+        let t = self.text();
         let (title, lines) = match kind {
             InfoKind::About => (
-                "关于 FastView",
+                t.t(TextKey::About),
                 vec![
-                    format!("版本 {}", env!("CARGO_PKG_VERSION")),
-                    "Rust + GPUI 实验版本".to_string(),
-                    "分级解码 · 本地缓存 · 拖拽打开".to_string(),
+                    format!("{} {}", t.t(TextKey::AboutVersion), env!("CARGO_PKG_VERSION")),
+                    t.t(TextKey::AboutStage).to_string(),
+                    t.t(TextKey::AboutFeatures).to_string(),
                 ],
             ),
-            InfoKind::Update => (
-                "检查更新",
-                vec!["当前为实验版本，暂未接入更新服务。".to_string()],
-            ),
+            InfoKind::Update => (t.t(TextKey::CheckUpdate), vec![t.t(TextKey::UpdateBody).to_string()]),
         };
 
         let backdrop = div()
@@ -104,7 +103,7 @@ impl Spike {
                         div()
                             .text_size(px(11.0))
                             .text_color(palette.text_muted)
-                            .child("Esc 关闭"),
+                            .child(t.t(TextKey::EscClose)),
                     ),
             )
             .child(body)
@@ -123,7 +122,7 @@ impl Spike {
                         .cursor_pointer()
                         .hover(|style| style.opacity(0.9))
                         .on_click(cx.listener(|this, _, _, cx| this.close_info(cx)))
-                        .child("知道了"),
+                        .child(t.t(TextKey::GotIt)),
                 ),
             );
 

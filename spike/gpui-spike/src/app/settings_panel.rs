@@ -188,9 +188,9 @@ impl Spike {
         // 主题分段
         let mut theme_seg = div().flex().gap(px(4.0));
         for (index, (label, value)) in [
-            ("跟随系统", Theme::System),
-            ("浅色", Theme::Light),
-            ("深色", Theme::Dark),
+            (t.t(TextKey::ThemeSystem), Theme::System),
+            (t.t(TextKey::ThemeLight), Theme::Light),
+            (t.t(TextKey::ThemeDark), Theme::Dark),
         ]
         .into_iter()
         .enumerate()
@@ -230,11 +230,11 @@ impl Spike {
         #[cfg(not(windows))]
         let mica_supported = true;
 
-        let mut material_options = vec![("亚克力", Material::Acrylic)];
+        let mut material_options = vec![(t.t(TextKey::MaterialAcrylic), Material::Acrylic)];
         if mica_supported {
-            material_options.push(("云母", Material::Mica));
+            material_options.push((t.t(TextKey::MaterialMica), Material::Mica));
         }
-        material_options.push(("无模糊", Material::None));
+        material_options.push((t.t(TextKey::MaterialNone), Material::None));
 
         let mut material_seg = div().flex().gap(px(4.0));
         for (index, (label, value)) in material_options.into_iter().enumerate() {
@@ -331,15 +331,15 @@ impl Spike {
 
         // 标题右侧显示当前组合，改完立刻能确认结果
         let theme_label = match self.settings.theme {
-            Theme::System => "跟随系统",
-            Theme::Light => "浅色",
-            Theme::Dark => "深色",
+            Theme::System => t.t(TextKey::ThemeSystem),
+            Theme::Light => t.t(TextKey::ThemeLight),
+            Theme::Dark => t.t(TextKey::ThemeDark),
         };
         let material_label = match self.settings.material {
-            Material::Acrylic => "亚克力",
-            Material::Mica if mica_supported => "云母",
-            Material::Mica => "亚克力",
-            Material::None => "无模糊",
+            Material::Acrylic => t.t(TextKey::MaterialAcrylic),
+            Material::Mica if mica_supported => t.t(TextKey::MaterialMica),
+            Material::Mica => t.t(TextKey::MaterialAcrylic),
+            Material::None => t.t(TextKey::MaterialNone),
         };
 
         let panel = div()
@@ -371,7 +371,7 @@ impl Spike {
                             .text_size(px(13.0))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(palette.text)
-                            .child("设置"),
+                            .child(t.t(TextKey::Settings)),
                     )
                     .child(
                         div()
@@ -389,17 +389,17 @@ impl Spike {
                 &palette,
             ))
             .child(settings_row(
-                "主题",
+                t.t(TextKey::Theme),
                 segmented(theme_seg, &palette),
                 &palette,
             ))
             .child(settings_row(
-                "窗口材质",
+                t.t(TextKey::Material),
                 segmented(material_seg, &palette),
                 &palette,
             ))
             .child(settings_row(
-                "不透明度",
+                t.t(TextKey::Opacity),
                 opacity_control.into_any_element(),
                 &palette,
             ))
@@ -410,7 +410,7 @@ impl Spike {
                     .gap(px(8.0))
                     .child(div().h(px(1.0)).bg(palette.separator))
                     .child(toggle_row(
-                        "缩略图条",
+                        t.t(TextKey::ThumbnailBar),
                         self.settings.show_thumbs,
                         "settings-thumbs",
                         &palette,
@@ -418,7 +418,7 @@ impl Spike {
                         cx,
                     ))
                     .child(toggle_row(
-                        "状态栏常显",
+                        t.t(TextKey::StatusPinned),
                         self.settings.status_pinned,
                         "settings-status",
                         &palette,
@@ -426,7 +426,7 @@ impl Spike {
                         cx,
                     ))
                     .child(toggle_row(
-                        "无边框模式",
+                        t.t(TextKey::Borderless),
                         self.settings.hide_chrome,
                         "settings-chrome",
                         &palette,
@@ -451,7 +451,7 @@ impl Spike {
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.close_settings(window, cx);
                         }))
-                        .child("完成"),
+                        .child(t.t(TextKey::Done)),
                 ),
             );
 
