@@ -45,6 +45,7 @@ const LEFT: &[(TextKey, &[(TextKey, KeyLabel)])] = &[
             (TextKey::ActPan, KeyLabel::I18n(TextKey::KeyDrag)),
             (TextKey::ActThumbnails, KeyLabel::Raw("T")),
             (TextKey::ActStatus, KeyLabel::Raw("S")),
+            (TextKey::ActPhotoInfo, KeyLabel::Raw("I")),
         ],
     ),
 ];
@@ -78,6 +79,7 @@ impl Spike {
             self.settings.save();
         }
         self.info = None;
+        self.photo_info = None;
         self.help_open = true;
         cx.notify();
     }

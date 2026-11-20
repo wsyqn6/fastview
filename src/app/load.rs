@@ -245,6 +245,10 @@ impl Spike {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let refresh_info = self
+            .photo_info
+            .as_ref()
+            .and_then(|state| (state.path != path).then(|| path.clone()));
         let dropped = self.cache.insert(
             path.clone(),
             meta,
@@ -271,6 +275,9 @@ impl Spike {
         }
         for image in dropped {
             let _ = window.drop_image(image);
+        }
+        if let Some(path) = refresh_info {
+            self.refresh_photo_info(path, cx);
         }
         cx.notify();
     }

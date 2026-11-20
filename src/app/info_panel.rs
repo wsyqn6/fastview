@@ -25,6 +25,7 @@ impl Spike {
             self.settings.save();
         }
         self.help_open = false;
+        self.photo_info = None;
         self.info = Some(kind);
         cx.notify();
     }

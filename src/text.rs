@@ -50,6 +50,8 @@ strings! {
     Shortcuts => "快捷键", "Shortcuts";
     About => "关于 FastView", "About FastView";
     CheckUpdate => "检查更新", "Check for Updates";
+    PhotoInfo => "照片信息", "Photo Info";
+    PhotoInfoCapture => "拍摄", "Capture";
 
     Language => "界面语言", "Language";
     LanguageSystem => "跟随系统", "System";
@@ -99,6 +101,7 @@ strings! {
     ActPan => "平移", "Pan";
     ActThumbnails => "缩略图", "Thumbnails";
     ActStatus => "状态栏常显", "Keep status bar";
+    ActPhotoInfo => "照片信息", "Photo info";
     ActFullscreen => "全屏", "Fullscreen";
     ActBorderless => "无边框", "Borderless";
     ActExitFullscreen => "退出全屏 / 关闭浮层", "Exit fullscreen / close overlay";
@@ -110,6 +113,41 @@ strings! {
     AboutStage => "Rust + GPUI 实验版本", "Rust + GPUI experimental build";
     AboutFeatures => "分级解码 · 本地缓存 · 拖拽打开", "Tiered decoding · local cache · drag & drop";
     UpdateBody => "当前为实验版本，暂未接入更新服务。", "Experimental build; update service is not available yet.";
+
+    GroupImage => "图像", "Image";
+    GroupCamera => "相机", "Camera";
+    GroupExposure => "曝光", "Exposure";
+    FieldName => "名称", "Name";
+    FieldPath => "路径", "Path";
+    FieldDimensions => "尺寸", "Dimensions";
+    FieldFileSize => "文件大小", "File Size";
+    FieldFormat => "格式", "Format";
+    FieldSize => "大小", "Size";
+    FieldStorageSize => "存储尺寸", "Stored Size";
+    FieldDisplaySize => "显示尺寸", "Display Size";
+    FieldOrientation => "EXIF 方向", "EXIF Orientation";
+    FieldRotation => "当前旋转", "Rotation";
+    FieldMake => "制造商", "Make";
+    FieldModel => "型号", "Model";
+    FieldCamera => "相机", "Camera";
+    FieldLens => "镜头", "Lens";
+    FieldFocalLength => "焦距", "Focal Length";
+    FieldTakenAt => "拍摄时间", "Taken At";
+    FieldIso => "ISO", "ISO";
+    FieldShutter => "快门", "Shutter";
+    FieldAperture => "光圈", "Aperture";
+    NotRecorded => "未记录", "Not recorded";
+    ExifUnavailable => "EXIF 不可用", "EXIF unavailable";
+    PhotoInfoLoading => "正在读取照片信息…", "Reading photo info…";
+    PhotoInfoError => "读取失败", "Read failed";
+    OrientationNormal => "正常", "Normal";
+    OrientationRotate90 => "旋转 90°", "Rotate 90°";
+    OrientationRotate180 => "旋转 180°", "Rotate 180°";
+    OrientationRotate270 => "旋转 270°", "Rotate 270°";
+    OrientationMirrorHorizontal => "水平镜像", "Mirror horizontal";
+    OrientationMirrorVertical => "垂直镜像", "Mirror vertical";
+    OrientationRotate90MirrorHorizontal => "旋转 90° 并水平镜像", "Rotate 90° and mirror horizontal";
+    OrientationRotate270MirrorHorizontal => "旋转 270° 并水平镜像", "Rotate 270° and mirror horizontal";
 }
 
 #[cfg(test)]

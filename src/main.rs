@@ -17,6 +17,7 @@ mod com;
 mod decode;
 mod folder;
 mod menu;
+mod metadata;
 #[cfg(windows)]
 mod shell;
 mod text;

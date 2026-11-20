@@ -108,6 +108,13 @@ impl Spike {
             }
             return;
         }
+        // 照片信息：Esc 关闭，其余按键不落到查看器
+        if self.photo_info.is_some() {
+            if key.eq_ignore_ascii_case("escape") {
+                self.close_photo_info(cx);
+            }
+            return;
+        }
 
         // Alt+助记符直达顶层菜单（AltGr 是 Ctrl+Alt，必须排除）
         if modifiers.alt
@@ -155,6 +162,10 @@ impl Spike {
             && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
         {
             self.toggle_help(cx);
+            return;
+        }
+        if plain && key.eq_ignore_ascii_case("i") {
+            self.toggle_photo_info(window, cx);
             return;
         }
 
@@ -235,6 +246,10 @@ impl Spike {
             }
             Cmd::Shortcuts => {
                 self.open_help(cx);
+                return;
+            }
+            Cmd::PhotoInfo => {
+                self.toggle_photo_info(window, cx);
                 return;
             }
             Cmd::About => {

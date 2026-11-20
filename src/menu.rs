@@ -21,6 +21,7 @@ pub enum Cmd {
     RotateCcw,
     Fullscreen,
     Thumbnails,
+    PhotoInfo,
     // 设置 / 帮助
     Settings,
     Shortcuts,
@@ -117,6 +118,12 @@ pub const MENUS: &[MenuSpec] = &[
                 shortcut: "T",
                 mnemonic: 'T',
                 cmd: Cmd::Thumbnails,
+            },
+            Command {
+                label: TextKey::PhotoInfo,
+                shortcut: "I",
+                mnemonic: 'I',
+                cmd: Cmd::PhotoInfo,
             },
         ],
     },

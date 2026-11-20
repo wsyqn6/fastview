@@ -18,6 +18,7 @@ mod load;
 mod menu_layer;
 mod minimap;
 mod pane;
+mod photo_info_panel;
 pub(crate) mod settings;
 mod settings_panel;
 mod status;
@@ -27,7 +28,7 @@ mod titlebar;
 mod widgets;
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
 use crate::text::{Text, TextKey};
-use crate::{cache, folder, viewer};
+use crate::{cache, folder, metadata, viewer};
 
 pub use boot::run;
 
@@ -114,6 +115,11 @@ pub struct Spike {
     help_open: bool,
     /// 关于 / 检查更新浮层
     info: Option<info_panel::InfoKind>,
+    /// 照片信息浮层与按路径缓存
+    photo_info: Option<photo_info_panel::PhotoInfoState>,
+    photo_info_cache: HashMap<PathBuf, metadata::CachedPhotoInfo>,
+    photo_info_order: VecDeque<PathBuf>,
+    photo_info_gen: u64,
     /// `V` 无边框模式：隐藏标题栏 / 菜单 / 状态栏，但保留任务栏窗口
     hide_chrome: bool,
     /// 正在拖动透明度滑杆
@@ -184,6 +190,10 @@ impl Spike {
             settings_open: false,
             help_open: false,
             info: None,
+            photo_info: None,
+            photo_info_cache: HashMap::new(),
+            photo_info_order: VecDeque::new(),
+            photo_info_gen: 0,
             hide_chrome,
             settings_drag: false,
             slider_bounds: Rc::new(RefCell::new(None)),
@@ -410,6 +420,7 @@ impl Render for Spike {
         let settings_panel = self.render_settings_panel(window, cx);
         let help_panel = self.render_help_panel(window, cx);
         let info_panel = self.render_info_panel(window, cx);
+        let photo_info_panel = self.render_photo_info_panel(window, cx);
         let thumb_bar = self.show_thumbs.then(|| self.render_thumbnails(window, cx));
         let focus_handle = self.focus_handle.clone();
         let drop_hover = self.drop_hover;
@@ -483,6 +494,7 @@ impl Render for Spike {
             .when_some(settings_panel, |this, panel| this.child(panel))
             .when_some(help_panel, |this, panel| this.child(panel))
             .when_some(info_panel, |this, panel| this.child(panel))
+            .when_some(photo_info_panel, |this, panel| this.child(panel))
             .when(self.hide_chrome, |this| this.child(borderless_hint(&palette, t)))
     }
 }
