@@ -45,7 +45,7 @@ use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
 use crate::text::{Text, TextKey};
-use crate::{cache, folder, metadata, viewer};
+use crate::{cache, decode, folder, metadata, viewer};
 
 pub use boot::run;
 
@@ -71,10 +71,10 @@ pub struct Spike {
     load_id: u64,
     /// 旋转序号：连续旋转时只保留最后一次的结果
     rotate_id: u64,
-    /// 正在补的更清晰档位（1/denom），None 表示空闲
-    sharpen: Option<u32>,
-    /// 补过但失败的档位，避免每帧重试
-    sharpen_failed: Option<u32>,
+    /// 正在补的清晰档（图片 + 角度 + 1/denom），None 表示空闲
+    sharpen: Option<(PathBuf, decode::Rotation, u32)>,
+    /// 补过但失败的档，避免每帧重试；旋转会清掉，允许新角度重试
+    sharpen_failed: Option<(PathBuf, decode::Rotation, u32)>,
     /// 同目录图片列表：翻页与缩略图条共用
     folder: Option<folder::Folder>,
     /// 缩略图纹理，键为文件路径

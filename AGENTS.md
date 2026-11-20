@@ -68,23 +68,23 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 
 ### 实施批次
 
-1. ✅ **首帧分级解码**：`spike/gpui-spike/src/decode`（`probe` → `pick_denom` → WIC 缩放 → 方向归一 + `image` 兜底）。8000×3000 实测 46 ms / 5.72 MB，20000×2000 实测 41 ms / 2.38 MB。
-2. ✅ **档位补齐**：`schedule_sharpen` 在 render 里检测，按 generation 去重；分档允许 5% 插值放大，避免临界点跳档。
+1. ✅ **首帧分级解码**：`src/decode`（`probe` → `pick_denom` → WIC 缩放 → 方向归一 + `image` 兜底）。8000×3000 实测 46 ms / 5.72 MB，20000×2000 实测 41 ms / 2.38 MB。
+2. ✅ **档位补齐**：`schedule_sharpen` 在 render 里检测，按 generation 去重；分档允许 5% 插值放大，避免临界点跳档。命中缓存时直接换纹理，不再重复解码。
 3. ✅ **缩略图条 + 目录翻页**：`shell.rs` 取系统 thumbcache，`folder.rs` 扫目录并自然排序，`←/→` 循环翻页。
 4. ✅ **纹理缓存 + 预取**：`cache.rs` 按字节 LRU 缓存**已上传的纹理**（预算 192 MB，key 为「图片 + 档位」，同时存 probe 结果）。切回看过的图零解码，前后各预取 1 张。
 5. ⏸️ **L2 分块（暂缓）**：整图解码一次 → 按行写入 1024 块 → 可见块优先上传。
    触发条件：拿到 24MP+ 真实样张，或「原始尺寸」下的显存占用（24MP ≈ 91 MB、48MP ≈ 183 MB）被判定不可接受。
    当前 1/1 档已能覆盖 4K 屏，且没有可验证的样本，先不做。
 
-### 后续性能待办（4K 日志实测 2026-11）
-- **首帧 317 ms**：略高于 <300 ms 目标；先拆分启动阶段计时，定位窗口创建、材质和字体初始化开销。
-- **旋转 124~189 ms**：4K 90° 会重解并重排像素；方向是先用当前纹理即时旋转，后台补目标档，临时纹理仍走 `present()` 回收。
-- **补清晰 63~121 ms**：4K `1/1` 纹理约 31.64 MiB；`schedule_sharpen` 应先查缓存，避免同 key 重复解码。
+### 性能状态归档（4K 日志实测 2026-11）
+- **首帧 317 ms**：gpui 平台层固有开销（窗口创建 / 材质 / 字体初始化），应用侧无法优化，不再作为待办。
+- ✅ **旋转**：改为复用当前纹理即时旋转（90° 像素重排 ~20 ms），后台补目标档，临时纹理仍走 `present()` 回收（`d3b0ef7`）。
+- ✅ **补清晰**：`schedule_sharpen` 先查缓存，同 key 命中直接换纹理，省掉后台全解码。
 - **Qt 兼容性提示**：日志出现 `Qt: Untested Windows version 10.0 detected!`；当前链路无可疑点，先视为外部模块提示，复现时用进程模块列表定位。
 
 ## 🌿 分支策略
 - `main`：egui 主线，**暂时冻结、不迭代**，只作为功能参考。
-- `explore/gpui`：gpui 重写线，**与 egui 无任何代码共享**，只保持功能对齐；实验代码在 `spike/gpui-spike`（独立 workspace，不参与主构建）。
+- `explore/gpui`：gpui 重写线，**与 egui 无任何代码共享**，只保持功能对齐；代码在根目录 `src/`，根 `Cargo.toml` 直接依赖 gpui（早期实验在 `spike/gpui-spike`，现已并入主线）。
 - gpui 线**不必照搬 main**：main 的设计与实现不一定合理、简洁、高效。
   允许在功能一致的前提下重新设计，选择更简单、更正确、更高性能的实现。
   判断标准是目标（流畅、低占用、UI 精美），不是与 main 代码形似。
@@ -178,7 +178,7 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 - 文案集中在 `src/text.rs` 的 `TextKey` 表，界面不写死文字；语言支持中文 / 英文 / 跟随系统 UI 语言，主题跟随系统深浅色
 
 ## 🧭 后续功能（已确认方向）
-- **图片信息窗口**（`I`）：EXIF（相机/镜头/ISO/快门/光圈/拍摄日期）、ICC/色彩空间、文件大小、格式等需要解码或 metadata 的数据。这类信息不进状态栏，单独设计窗口/功能。
+- 暂无。图片信息浮层（`I`）已完成，见 `photo_info_panel.rs` / `metadata.rs`。
 
 ## 💾 配置路径
 - egui 主线：`%APPDATA%\fastview\settings.json`
@@ -189,13 +189,13 @@ egui + `image` 旧链路的三个病灶，gpui 线不再重复：
 # 开发构建
 cargo build
 
-# 运行（主线）
+# 运行主线（egui，main 分支）
 cargo run --release -- <图片路径>
 
-# gpui 实验（可直接传图片路径）
-cd spike/gpui-spike && cargo run --release -- <图片路径>
+# 运行 gpui 线（explore/gpui 分支，当前 checkout，可直接传图片路径）
+cargo run --release -- <图片路径>
 ```
 
 环境变量（仅排查用）：`GPUI_DISABLE_DIRECT_COMPOSITION=1` 关闭 DComp，用于对比菜单条行为。
 
-> 注意：spike 是带窗口的 GUI 程序，除用户明确要求外不要自动启动，避免打断用户工作。
+> 注意：本项目是带窗口的 GUI 程序，除用户明确要求外不要自动启动，避免打断用户工作。

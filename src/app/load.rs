@@ -85,7 +85,7 @@ impl Spike {
                 );
                 self.loading = false;
                 self.view = viewer::ViewState::default();
-                self.present(path, meta, Rotation::None, denom, texture, window, cx);
+                self.present_cached(path, meta, Rotation::None, denom, texture, cx);
                 self.prefetch_neighbors(window, cx);
                 return;
             }
@@ -247,6 +247,42 @@ impl Spike {
         .detach();
     }
 
+    /// 命中缓存的纹理上屏：纹理已在 cache 中且 LRU 已刷新，
+    /// 绝不能再走 present（同 key 替换会把正在上屏的 Arc 当成旧纹理 drop_image）。
+    fn present_cached(
+        &mut self,
+        path: PathBuf,
+        meta: ImageMeta,
+        rotation: Rotation,
+        denom: u32,
+        texture: Arc<RenderImage>,
+        cx: &mut Context<Self>,
+    ) {
+        let refresh_info = self
+            .photo_info
+            .as_ref()
+            .and_then(|state| (state.path != path).then(|| path.clone()));
+        let changed = self
+            .image
+            .as_ref()
+            .is_none_or(|current| current.path != path);
+        self.image = Some(viewer::LoadedImage {
+            path,
+            image: texture,
+            pixel_size: decode::display_size(&meta, rotation),
+            denom,
+            rotation,
+            scalable: meta.scalable,
+        });
+        if changed {
+            self.touch_status(cx);
+        }
+        if let Some(path) = refresh_info {
+            self.refresh_photo_info(path, cx);
+        }
+        cx.notify();
+    }
+
     /// 上屏并写入缓存：`self.image` 与缓存持有同一个 `Arc`
     ///
     /// 纹理的回收责任从这里转到缓存：淘汰时才 `drop_image`，
@@ -388,14 +424,34 @@ impl Spike {
             return;
         }
         let want = decode::pick_denom(image.pixel_size.0, need_px);
-        if self.sharpen == Some(want) || self.sharpen_failed == Some(want) {
+        let path = image.path.clone();
+        let rotation = image.rotation;
+        // 去重 key 含图片与角度：缩放中途 want 变化或换图后，旧任务不再代表当前需求
+        let busy = |key: &Option<(PathBuf, Rotation, u32)>| {
+            key.as_ref()
+                .is_some_and(|(p, r, d)| p == &path && r == &rotation && *d == want)
+        };
+        if busy(&self.sharpen) || busy(&self.sharpen_failed) {
             return;
         }
 
-        self.sharpen = Some(want);
-        let path = image.path.clone();
-        let rotation = image.rotation;
+        self.sharpen = Some((path.clone(), rotation, want));
         let load_id = self.load_id;
+
+        // 翻页往返时同档可能已缓存：命中直接换纹理，省掉后台全解码
+        if let Some(meta) = self.cache.meta(&path) {
+            if let Some(texture) = self.cache.get(&path, rotation, want) {
+                eprintln!(
+                    "[SPIKE] {} sharpen hit cache 1/{want}",
+                    folder::file_name(&path)
+                );
+                // 同步完成补档，清掉占位标志；present_cached 不改 view
+                self.sharpen = None;
+                self.present_cached(path, meta, rotation, want, texture, cx);
+                return;
+            }
+        }
+
         eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
 
         cx.spawn(async move |this, cx| {
@@ -407,6 +463,12 @@ impl Spike {
             this.update_in(cx, |this, window, cx| {
                 // 已切到别的图，丢弃结果（此时纹理尚未上屏，无需回收）
                 if this.load_id != load_id {
+                    return;
+                }
+                // 只有仍是当前在途补档才落地：缩放中途发起的更新档会覆盖 sharpen，
+                // 此时旧档结果是过期的，既不能清标志也不能上屏（否则反向降档）。
+                let key = (path.clone(), rotation, want);
+                if this.sharpen.as_ref() != Some(&key) {
                     return;
                 }
                 this.sharpen = None;
@@ -437,9 +499,9 @@ impl Spike {
                             this.mem_usage()
                         );
                     }
-                    // 补档失败保持原图，不打扰用户；记下档位避免每帧重试
+                    // 补档失败保持原图，不打扰用户；记下精确档避免每帧重试
                     Err(_) => {
-                        this.sharpen_failed = Some(want);
+                        this.sharpen_failed = Some(key);
                         cx.notify();
                     }
                 }
