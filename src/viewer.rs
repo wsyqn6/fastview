@@ -150,6 +150,23 @@ impl ViewState {
         self.clamp_offset(view, base);
     }
 
+    /// 把图片中的某个点移到视口中心（minimap 点击 / 拖动用）
+    pub fn center_on(&mut self, target: Point<Pixels>, view: Size<Pixels>, base: Size<Pixels>) {
+        let scale = self.scale(view, base);
+        let base_w: f32 = base.width.into();
+        let base_h: f32 = base.height.into();
+        let x: f32 = target.x.into();
+        let y: f32 = target.y.into();
+
+        // image_bounds 原点 = view/2 - base*scale/2 + offset，
+        // 让 target 落在视口中心时对 offset 求解即可。
+        self.offset = point(
+            px((base_w / 2.0 - x) * scale),
+            px((base_h / 2.0 - y) * scale),
+        );
+        self.clamp_offset(view, base);
+    }
+
     /// 平移
     pub fn pan(&mut self, delta: Point<Pixels>, view: Size<Pixels>, base: Size<Pixels>) {
         self.offset = point(self.offset.x + delta.x, self.offset.y + delta.y);
@@ -204,5 +221,56 @@ impl ViewState {
     /// 显示百分比（100% = 1 图片像素对 1 设备像素）
     pub fn percent(&self, view: Size<Pixels>, base: Size<Pixels>) -> f32 {
         self.scale(view, base) * 100.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ViewMode, ViewState, point, px, size};
+
+    fn viewport() -> gpui::Size<gpui::Pixels> {
+        size(px(400.0), px(400.0))
+    }
+
+    fn large_image() -> gpui::Size<gpui::Pixels> {
+        size(px(1000.0), px(1000.0))
+    }
+
+    fn manual_zoom() -> ViewState {
+        ViewState {
+            mode: ViewMode::Manual,
+            zoom: 2.0,
+            ..ViewState::default()
+        }
+    }
+
+    #[test]
+    fn center_on_image_center_clears_offset() {
+        let mut view = manual_zoom();
+        view.center_on(point(px(500.0), px(500.0)), viewport(), large_image());
+        let offset: f32 = view.offset.x.into();
+        assert_eq!(offset, 0.0);
+        let offset: f32 = view.offset.y.into();
+        assert_eq!(offset, 0.0);
+    }
+
+    #[test]
+    fn center_on_corner_is_clamped() {
+        let mut view = manual_zoom();
+        view.center_on(point(px(1000.0), px(1000.0)), viewport(), large_image());
+        let x: f32 = view.offset.x.into();
+        let y: f32 = view.offset.y.into();
+        // 原始计算为 -1000，clamp 到 -988（KEEP_VISIBLE=24）
+        assert_eq!((x, y), (-988.0, -988.0));
+    }
+
+    #[test]
+    fn center_on_small_image_stays_centered() {
+        let mut view = ViewState::default();
+        let small = size(px(100.0), px(100.0));
+        view.center_on(point(px(50.0), px(50.0)), viewport(), small);
+        let x: f32 = view.offset.x.into();
+        let y: f32 = view.offset.y.into();
+        assert_eq!((x, y), (0.0, 0.0));
     }
 }
