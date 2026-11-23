@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, Context, ObjectFit, RenderImage, Window, div,
-    ease_out_quint, hsla, img, prelude::*, px,
+    Animation, AnimationExt, AnyElement, Context, ObjectFit, RenderImage, ScrollEvent, Window, div,
+    ease_out_quint, img, point, prelude::*, px,
 };
 
 use super::Spike;
@@ -17,6 +17,30 @@ use crate::{folder, shell};
 const THUMB_EDGE: u32 = 160;
 /// 单个目录最多加载多少张缩略图
 const MAX_THUMBS: usize = 512;
+/// 统一高度（逻辑像素），宽度按原图比例
+const THUMB_HEIGHT: f32 = 48.0;
+/// 相框最大内容宽度，超出则按宽度反算高度
+const THUMB_MAX_WIDTH: f32 = THUMB_SIZE - 8.0;
+/// 相框边框宽度（两侧）
+const FRAME_BORDER: f32 = 1.0;
+/// 每项布局宽度（格子 + gap），用于虚拟化时计算滚动偏移
+const ITEM_STRIDE: f32 = THUMB_SIZE + 8.0;
+/// 可视区前后多渲染几项，避免滚动时出现空白
+const OVERSCAN: usize = 3;
+
+/// 缩略图显示尺寸：高度统一、宽度随原图比例，超宽时收窄
+fn display_size(image: &RenderImage) -> (f32, f32) {
+    let size = image.size(0);
+    let w = size.width.0.max(1) as f32;
+    let h = size.height.0.max(1) as f32;
+    let mut width = THUMB_HEIGHT * w / h;
+    let mut height = THUMB_HEIGHT;
+    if width > THUMB_MAX_WIDTH {
+        width = THUMB_MAX_WIDTH;
+        height = width * h / w;
+    }
+    (width, height)
+}
 
 impl Spike {
     /// 让目录列表跟上当前文件：同目录只移动游标，换目录则重扫并重载缩略图
@@ -123,34 +147,58 @@ impl Spike {
         };
         let palette = self.palette(window);
         let current = folder.index;
+        let total = folder.files.len().min(MAX_THUMBS);
 
-        // 换图后把当前项滚进可视区（目录几十张时看不到高亮就没意义了）
-        if self.thumb_scrolled != Some(current) {
-            self.thumb_scroll.scroll_to_item(current);
+        let view_width: f32 = self.thumb_scroll.bounds().size.width.into();
+        // gpui 的 scroll offset 为负：向左滚得越远越负，取反得到正向滚动距离
+        let offset = self.thumb_scroll.offset();
+        let scrolled: f32 = -f32::from(offset.x);
+
+        // 换图后把当前项滚进可视区；首帧视口宽为 0 时等下一帧再定位
+        if self.thumb_scrolled != Some(current) && view_width > 0.0 {
+            let item_left = current as f32 * ITEM_STRIDE;
+            let item_right = item_left + THUMB_SIZE;
+            let next = if item_left < scrolled {
+                item_left
+            } else if item_right > scrolled + view_width {
+                item_right - view_width
+            } else {
+                scrolled
+            };
+            self.thumb_scroll.set_offset(point(px(-next), offset.y));
             self.thumb_scrolled = Some(current);
         }
+
+        // 只构造可视区 ± OVERSCAN 的 item；前后 spacer 撑出完整滚动宽度
+        let scrolled: f32 = -f32::from(self.thumb_scroll.offset().x);
+        let first = (scrolled / ITEM_STRIDE) as usize;
+        let visible = ((view_width / ITEM_STRIDE).ceil() as usize + 1).max(8);
+        let start = first.saturating_sub(OVERSCAN);
+        let end = (first + visible + OVERSCAN).min(total);
 
         let items = folder
             .files
             .iter()
-            .take(MAX_THUMBS)
+            .skip(start)
+            .take(end.saturating_sub(start))
             .enumerate()
-            .map(|(index, path)| {
+            .map(|(offset_index, path)| {
+                let index = start + offset_index;
                 let selected = index == current;
                 let target = path.clone();
+                let image = self.thumbs.get(path).cloned();
+                let loaded = image.is_some();
                 div()
                     .id(("thumb", index))
                     .flex_none()
                     .size(px(THUMB_SIZE))
-                    // 选中环 2px + 2px 间隙，未选中也保留同宽透明边框，避免跳动
-                    .border_2()
-                    .border_color(if selected {
-                        palette.accent
-                    } else {
-                        hsla(0.0, 0.0, 0.0, 0.0)
-                    })
-                    .p(px(2.0))
+                    .mr(px(8.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .relative()
                     .rounded(px(6.0))
+                    .when(selected, |this| this.bg(palette.active))
                     .when(!selected, |this| {
                         this.hover(move |style| style.bg(palette.hover))
                     })
@@ -158,12 +206,39 @@ impl Spike {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_path(target.clone(), window, cx);
                     }))
-                    .when_some(self.thumbs.get(path).cloned(), |this, image| {
+                    // 加载前只留中性占位，加载后才出现按比例相框，避免尺寸跳变
+                    .when_some(image, |this, image| {
+                        let (w, h) = display_size(&image);
                         this.child(
-                            img(image)
-                                .object_fit(ObjectFit::Contain)
-                                .size_full()
-                                .rounded(px(4.0)),
+                            div()
+                                .w(px(w + 2.0 * FRAME_BORDER))
+                                .h(px(h + 2.0 * FRAME_BORDER))
+                                .rounded(px(4.0))
+                                .overflow_hidden()
+                                .bg(palette.hover)
+                                .border_1()
+                                .border_color(palette.separator)
+                                .child(img(image).object_fit(ObjectFit::Fill).size_full()),
+                        )
+                    })
+                    .when(!loaded, |this| {
+                        this.child(
+                            div()
+                                .size(px(16.0))
+                                .rounded(px(3.0))
+                                .bg(palette.separator.opacity(0.6)),
+                        )
+                    })
+                    .when(selected, |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .bottom(px(2.0))
+                                .left(px(16.0))
+                                .right(px(16.0))
+                                .h(px(2.0))
+                                .rounded_full()
+                                .bg(palette.accent),
                         )
                     })
                     .into_any_element()
@@ -186,12 +261,15 @@ impl Spike {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap_2()
                     .px_2()
                     .overflow_hidden()
                     .overflow_x_scroll()
                     .track_scroll(&self.thumb_scroll)
+                    // 滚动会改变可见范围，必须触发 render 补上新进入的 item
+                    .on_scroll(cx.listener(|_, _: &ScrollEvent, _, cx| cx.notify()))
+                    .child(div().flex_none().w(px(start as f32 * ITEM_STRIDE)))
                     .children(items)
+                    .child(div().flex_none().w(px((total - end) as f32 * ITEM_STRIDE)))
                     // 内容淡入 + 轻微上移；外层高度不变，查看器不会跟着抖动
                     .with_animation(
                         "thumbbar-open",
@@ -200,5 +278,38 @@ impl Spike {
                     ),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn texture(width: u32, height: u32) -> RenderImage {
+        let buffer =
+            image::RgbaImage::from_raw(width, height, vec![0; (width * height * 4) as usize])
+                .expect("尺寸与缓冲一致");
+        RenderImage::new(vec![image::Frame::new(buffer)])
+    }
+
+    #[test]
+    fn display_size_square() {
+        let (w, h) = display_size(&texture(100, 100));
+        assert!((w - THUMB_HEIGHT).abs() < 0.01);
+        assert!((h - THUMB_HEIGHT).abs() < 0.01);
+    }
+
+    #[test]
+    fn display_size_wide_clamped_by_max_width() {
+        let (w, h) = display_size(&texture(192, 108));
+        assert!((w - THUMB_MAX_WIDTH).abs() < 0.01);
+        assert!((h - 31.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn display_size_portrait_keeps_height() {
+        let (w, h) = display_size(&texture(108, 192));
+        assert!((w - 27.0).abs() < 0.01);
+        assert!((h - THUMB_HEIGHT).abs() < 0.01);
     }
 }

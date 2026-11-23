@@ -76,7 +76,6 @@ strings! {
     Formats => "支持 JPEG / PNG / WebP / GIF / BMP / TIFF", "Supports JPEG / PNG / WebP / GIF / BMP / TIFF";
     ModeOriginal => "原始", "Actual";
     ModeFill => "填充", "Fill";
-    RestoreHint => "按 V 恢复界面", "Press V to restore chrome";
     DropHint => "松开以打开图片", "Drop to open image";
     OpenPrompt => "打开图片", "Open Image";
 

@@ -513,20 +513,7 @@ impl Render for Spike {
             .when_some(help_panel, |this, panel| this.child(panel))
             .when_some(info_panel, |this, panel| this.child(panel))
             .when_some(photo_info_panel, |this, panel| this.child(panel))
-            .when(self.hide_chrome, |this| this.child(borderless_hint(&palette, t)))
     }
-}
-
-/// 无边框模式下的恢复提示：不给 id，避免遮住图片交互
-fn borderless_hint(palette: &Palette, t: Text) -> AnyElement {
-    div()
-        .absolute()
-        .bottom(px(10.0))
-        .left(px(12.0))
-        .text_size(px(11.0))
-        .text_color(palette.text_muted.opacity(0.65))
-        .child(t.t(TextKey::RestoreHint))
-        .into_any_element()
 }
 
 /// 文件拖到内容区时的投放层（不覆盖标题栏与缩略图条）
