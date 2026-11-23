@@ -108,9 +108,12 @@ impl Spike {
             }
             return;
         }
-        // 照片信息：Esc 关闭，其余按键不落到查看器
+        // 照片信息：Esc 或 I 关闭（与打开时的 I 对称），其余按键不落到查看器
         if self.photo_info.is_some() {
-            if key.eq_ignore_ascii_case("escape") {
+            let plain = !modifiers.control && !modifiers.alt && !modifiers.platform;
+            if key.eq_ignore_ascii_case("escape")
+                || (plain && key.eq_ignore_ascii_case("i"))
+            {
                 self.close_photo_info(cx);
             }
             return;

@@ -135,17 +135,25 @@ fn field_uint(exif: &Exif, tag: Tag) -> Option<u32> {
 }
 
 /// `2024:01:02 03:04:05` → `2024-01-02 03:04:05`
+///
+/// 只改日期段的前两个冒号；纯时间值（如 `03:04:05`）原样保留
 fn normalize_date(value: String) -> Option<String> {
-    let mut out = String::with_capacity(value.len());
-    let mut changed = 0;
-    for ch in value.chars() {
-        if ch == ':' && changed < 2 {
-            out.push('-');
-            changed += 1;
-        } else {
-            out.push(ch);
-        }
-    }
+    let bytes = value.as_bytes();
+    let is_date = bytes.len() >= 10
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b':'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b':'
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+
+    let out = if is_date {
+        let mut chars: Vec<char> = value.chars().collect();
+        chars[4] = '-';
+        chars[7] = '-';
+        chars.into_iter().collect()
+    } else {
+        value
+    };
     (!out.trim().is_empty()).then_some(out)
 }
 
@@ -220,6 +228,19 @@ mod tests {
             normalize_date("2024:01:02 03:04:05".to_string()).as_deref(),
             Some("2024-01-02 03:04:05")
         );
+    }
+
+    #[test]
+    fn normalize_date_keeps_time_only_value() {
+        assert_eq!(
+            normalize_date("03:04:05".to_string()).as_deref(),
+            Some("03:04:05")
+        );
+        assert_eq!(
+            normalize_date("2024:01:02".to_string()).as_deref(),
+            Some("2024-01-02")
+        );
+        assert_eq!(normalize_date("  ".to_string()), None);
     }
 
     #[test]
