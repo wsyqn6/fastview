@@ -70,6 +70,27 @@ impl ImageCache {
             .map(|level| Arc::clone(&level.texture))
     }
 
+    /// 找不粗于 `max_denom` 的最近档，避免缓存有可用档却白解一张
+    ///
+    /// denom 越大越省纹理内存；取 ≤ max_denom 中最大的那个，既够清晰又最经济。
+    pub fn best_for(
+        &mut self,
+        path: &Path,
+        rotation: Rotation,
+        max_denom: u32,
+    ) -> Option<(u32, Arc<RenderImage>)> {
+        self.tick += 1;
+        let tick = self.tick;
+        let cached = self.entries.get_mut(path)?;
+        cached.last_used = tick;
+        cached
+            .levels
+            .iter()
+            .filter(|((r, denom), _)| *r == rotation && *denom <= max_denom)
+            .max_by_key(|((_, denom), _)| *denom)
+            .map(|((_, denom), level)| (*denom, Arc::clone(&level.texture)))
+    }
+
     /// 写入一个档位，返回需要回收的纹理
     ///
     /// `keep` 是当前正在显示的图，淘汰时永不选中它。
@@ -206,6 +227,27 @@ mod tests {
         // 其它档位与角度互不影响
         assert!(cache.get(&path, Rotation::None, 1).is_none());
         assert!(cache.get(&path, Rotation::Cw90, 2).is_none());
+    }
+
+    #[test]
+    fn best_for_prefers_coarsest_sufficient_level() {
+        let mut cache = ImageCache::new(64 * 1024 * 1024);
+        let path = PathBuf::from("a.jpg");
+        let m = meta(8000, 8000);
+        cache.insert(path.clone(), m, Rotation::None, 1, texture(8000, 8000), &path);
+        cache.insert(path.clone(), m, Rotation::None, 2, texture(4000, 4000), &path);
+
+        // 需要 1/4：1/1 和 1/2 都够，取更省内存的 1/2
+        let (denom, _) = cache.best_for(&path, Rotation::None, 4).expect("应当命中");
+        assert_eq!(denom, 2);
+        // 需要 1/1：只有全尺寸档符合
+        let (denom, _) = cache.best_for(&path, Rotation::None, 1).expect("应当命中");
+        assert_eq!(denom, 1);
+        // 需求降到 1/8：1/2 依然够清晰，命中它（最省纹理的可用档）
+        let (denom, _) = cache.best_for(&path, Rotation::None, 8).expect("应当命中");
+        assert_eq!(denom, 2);
+        // 角度隔离
+        assert!(cache.best_for(&path, Rotation::Cw90, 4).is_none());
     }
 
     #[test]

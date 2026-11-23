@@ -21,14 +21,24 @@ struct Decoded {
     elapsed: Duration,
 }
 
-/// 统一的后台解码入口：probe 只读文件头，预览按需选档
+/// 解码排队期间generation已变则跳过，省掉无用的后台占用
+fn stale<C: gpui::AppContext>(this: &gpui::WeakEntity<Spike>, cx: &C, load_id: u64) -> bool {
+    this.read_with(cx, |this, _| this.load_id != load_id)
+        .unwrap_or(true)
+}
+
+/// 统一的后台解码入口：已有 meta 时跳过 probe，预览按需选档
 async fn decode_task(
     path: PathBuf,
     need_px: u32,
     rotation: Rotation,
+    known_meta: Option<ImageMeta>,
 ) -> Result<Decoded, String> {
     let started = Instant::now();
-    let meta = decode::probe(&path)?;
+    let meta = match known_meta {
+        Some(meta) => meta,
+        None => decode::probe(&path)?,
+    };
     let preview = decode::load_preview(&path, &meta, need_px, rotation)?;
     Ok(Decoded {
         meta,
@@ -72,11 +82,12 @@ impl Spike {
 
         let need_px = self.need_px(window);
 
-        // 缓存命中：连 probe 都省掉，直接换纹理上屏
+        // 缓存命中：连 probe 都省掉；有更清晰的已解码档就直接复用，不白解一张粗档
         if let Some(meta) = self.cache.meta(&path) {
-            // 开新图一律回到 0°
-            let denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
-            if let Some(texture) = self.cache.get(&path, Rotation::None, denom) {
+            let max_denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
+            if let Some((denom, texture)) =
+                self.cache.best_for(&path, Rotation::None, max_denom)
+            {
                 eprintln!(
                     "[SPIKE] {} hit cache 1/{denom} ({}x{})",
                     folder::file_name(&path),
@@ -99,10 +110,14 @@ impl Spike {
         cx.notify();
 
         cx.spawn(async move |this, cx| {
+            // 排队期间已被更新的请求取代：直接跳过，不占后台解码线程
+            if stale(&this, cx, load_id) {
+                return;
+            }
             let name = folder::file_name(&path);
             let result = cx
                 .background_executor()
-                .spawn(decode_task(path.clone(), need_px, Rotation::None))
+                .spawn(decode_task(path.clone(), need_px, Rotation::None, None))
                 .await;
 
             this.update_in(cx, |this, window, cx| {
@@ -222,12 +237,23 @@ impl Spike {
             return;
         }
 
-        // 纹理字节不可用（理论上不会发生）：退回原始重解路径
+        // 纹理字节不可用（理论上不会发生）：退回原始重解路径，meta 可复用
         let load_id = self.load_id;
+        let Some(meta) = self.cache.meta(&path) else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
+            if this
+                .read_with(cx, |this, _| {
+                    this.rotate_id != rotate_id || this.load_id != load_id
+                })
+                .unwrap_or(true)
+            {
+                return;
+            }
             let result = cx
                 .background_executor()
-                .spawn(decode_task(path.clone(), need_px, rotation))
+                .spawn(decode_task(path.clone(), need_px, rotation, Some(meta)))
                 .await;
 
             this.update_in(cx, |this, window, cx| {
@@ -341,6 +367,7 @@ impl Spike {
             return;
         };
         let need_px = self.need_px(window);
+        let load_id = self.load_id;
 
         // 目录只有两张图时前后邻居重合，必须去重，否则同一张会被解两次
         let targets: Vec<PathBuf> = [-1isize, 1]
@@ -359,15 +386,21 @@ impl Spike {
 
         cx.spawn(async move |this, cx| {
             for path in targets {
-                let started = Instant::now();
-                let result = cx
-                    .background_executor()
-                    .spawn(decode_task(path.clone(), need_px, Rotation::None))
-                    .await;
+                // 已翻页：跳过解码，但仍进 update_in 清 prefetching 标志
+                let result = if stale(&this, cx, load_id) {
+                    None
+                } else {
+                    let started = Instant::now();
+                    let decoded = cx
+                        .background_executor()
+                        .spawn(decode_task(path.clone(), need_px, Rotation::None, None))
+                        .await;
+                    Some((decoded, started))
+                };
 
                 this.update_in(cx, |this, window, cx| {
                     this.prefetching.remove(&path);
-                    let Ok(Decoded { meta, preview, .. }) = result else {
+                    let Some((Ok(Decoded { meta, preview, .. }), started)) = result else {
                         return;
                     };
                     // 用户已经切到这张了：由正常路径接管，别用预取结果顶掉在用纹理
@@ -439,32 +472,40 @@ impl Spike {
         let load_id = self.load_id;
 
         // 翻页往返时同档可能已缓存：命中直接换纹理，省掉后台全解码
-        if let Some(meta) = self.cache.meta(&path) {
-            if let Some(texture) = self.cache.get(&path, rotation, want) {
-                eprintln!(
-                    "[SPIKE] {} sharpen hit cache 1/{want}",
-                    folder::file_name(&path)
-                );
-                // 同步完成补档，清掉占位标志；present_cached 不改 view
-                self.sharpen = None;
-                self.present_cached(path, meta, rotation, want, texture, cx);
-                return;
-            }
+        let known_meta = self.cache.meta(&path);
+        if let Some(meta) = known_meta
+            && let Some(texture) = self.cache.get(&path, rotation, want)
+        {
+            eprintln!(
+                "[SPIKE] {} sharpen hit cache 1/{want}",
+                folder::file_name(&path)
+            );
+            // 同步完成补档，清掉占位标志；present_cached 不改 view
+            self.sharpen = None;
+            self.present_cached(path, meta, rotation, want, texture, cx);
+            return;
         }
 
         eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
 
         cx.spawn(async move |this, cx| {
+            // 排队期间已切图：清掉占位标志，让新图的补档不受阻
+            if stale(&this, cx, load_id) {
+                this.update(cx, |this, cx| {
+                    if this.sharpen.as_ref() == Some(&(path.clone(), rotation, want)) {
+                        this.sharpen = None;
+                    }
+                    cx.notify();
+                })
+                .ok();
+                return;
+            }
             let result = cx
                 .background_executor()
-                .spawn(decode_task(path.clone(), need_px, rotation))
+                .spawn(decode_task(path.clone(), need_px, rotation, known_meta))
                 .await;
 
             this.update_in(cx, |this, window, cx| {
-                // 已切到别的图，丢弃结果（此时纹理尚未上屏，无需回收）
-                if this.load_id != load_id {
-                    return;
-                }
                 // 只有仍是当前在途补档才落地：缩放中途发起的更新档会覆盖 sharpen，
                 // 此时旧档结果是过期的，既不能清标志也不能上屏（否则反向降档）。
                 let key = (path.clone(), rotation, want);
