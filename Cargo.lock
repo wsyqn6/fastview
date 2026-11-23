@@ -1415,11 +1415,13 @@ name = "fastview"
 version = "0.3.1"
 dependencies = [
  "dirs 6.0.0",
+ "embed-resource",
  "gpui-platform-gpui-unofficial",
  "gpui-unofficial",
  "image",
  "kamadak-exif",
  "raw-window-handle",
+ "resvg",
  "serde",
  "serde_json",
  "windows 0.61.3",

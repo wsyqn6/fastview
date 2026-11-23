@@ -4,8 +4,8 @@
 //! `Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框。
 
 use gpui::{
-    AnyElement, Div, HighlightStyle, Hsla, Path, Pixels, Point, StyledText, UnderlineStyle, Window,
-    WindowControlArea, canvas, div, hsla, point, prelude::*, px, rgb,
+    AnyElement, Div, HighlightStyle, Hsla, Path, PathBuilder, Pixels, Point, StyledText,
+    UnderlineStyle, Window, WindowControlArea, canvas, div, hsla, point, prelude::*, px, rgb,
 };
 
 use super::theme::{CLOSE_ACTIVE, CLOSE_HOVER, ICON_SIZE, Palette, WINDOW_BUTTON_WIDTH};
@@ -117,6 +117,47 @@ fn icon_element(icon: Icon, color: Hsla) -> Div {
         )
         .size_full(),
     )
+}
+
+/// 标题栏左上角应用标：与 `design/logo/f-solid.svg` 共用同一组顶点。
+const APP_LOGO: [(f32, f32); 11] = [
+    (20.0, 24.0),
+    (32.0, 12.0),
+    (84.0, 12.0),
+    (72.0, 24.0),
+    (32.0, 24.0),
+    (32.0, 42.0),
+    (66.0, 42.0),
+    (54.0, 54.0),
+    (32.0, 54.0),
+    (32.0, 76.0),
+    (20.0, 88.0),
+];
+
+fn paint_app_logo(window: &mut Window, center: Point<Pixels>, color: Hsla) {
+    let cx: f32 = center.x.into();
+    let cy: f32 = center.y.into();
+    let scale = 16.0 / 100.0;
+    let points: Vec<Point<Pixels>> = APP_LOGO
+        .iter()
+        .map(|(x, y)| point(px(cx + (x - 50.0) * scale), px(cy + (y - 50.0) * scale)))
+        .collect();
+    let mut builder = PathBuilder::fill();
+    builder.add_polygon(&points, true);
+    if let Ok(path) = builder.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// 标题栏应用标：16px 单色剪影，细节交给程序图标的大尺寸版本
+pub fn app_logo(color: Hsla) -> AnyElement {
+    div().w(px(16.0)).h(px(16.0)).child(
+        canvas(
+            |bounds, _, _| bounds.center(),
+            move |_, center, window, _| paint_app_logo(window, center, color),
+        )
+        .size_full(),
+    ).into_any_element()
 }
 
 /// Win11 风格的窗口控制按钮

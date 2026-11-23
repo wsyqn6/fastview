@@ -68,6 +68,7 @@ pub fn run() {
                 let backdrop = translucent && settings.uses_backdrop();
                 // 先试无边框；Win10 失败时回退成标题栏底色，避免露出原生亮边
                 win::apply_window_frame(raw, border_rgb, backdrop);
+                win::apply_window_icon(raw);
                 win::apply_dark_mode(raw, dark);
                 let supported = win::apply_backdrop(raw, super::backdrop_kind(&settings));
                 // 22621 之前没有系统背景材质：直接设老式亚克力；窗口创建时已是

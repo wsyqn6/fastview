@@ -22,9 +22,10 @@ use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetClientRect, GetWindowLongPtrW, IsZoomed, SW_MAXIMIZE, SW_NORMAL,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
-    SetWindowPos, SetWindowLongPtrW, ShowWindowAsync, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_STYLE, GetClientRect, GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IsZoomed, LoadIconW,
+    SW_MAXIMIZE, SW_NORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+    SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowLongPtrW, ShowWindowAsync,
+    WM_SETICON, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 
 use crate::app::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
@@ -117,6 +118,22 @@ pub enum Backdrop {
     None,
     Acrylic,
     Mica,
+}
+
+/// 把资源里的 ICO 设为窗口图标，任务栏与 Alt+Tab 随之生效。
+pub fn apply_window_icon(hwnd: HWND) {
+    unsafe {
+        let instance = GetModuleHandleA(core::ptr::null());
+        if instance.is_null() {
+            return;
+        }
+        let icon = LoadIconW(instance, 1usize as *const u16);
+        if icon.is_null() {
+            return;
+        }
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, icon as isize);
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon as isize);
+    }
 }
 
 /// 设置窗口边框与圆角

@@ -6,7 +6,7 @@ use gpui::{
 
 use super::Spike;
 use super::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
-use super::widgets::{Icon, mnemonic_label, window_button};
+use super::widgets::{Icon, app_logo, mnemonic_label, window_button};
 use crate::menu;
 
 impl Spike {
@@ -70,10 +70,20 @@ impl Spike {
                     .h_full()
                     .window_control_area(WindowControlArea::Drag),
             );
+        // 应用标与左留白一样交给系统拖动，不新增点击行为
+        bar = bar.child(
+            div()
+                .id("titlebar-app-logo")
+                .h_full()
+                .flex()
+                .items_center()
+                .window_control_area(WindowControlArea::Drag)
+                .child(app_logo(palette.icon)),
+        );
 
         // 菜单项单独包一层：`on_children_prepainted` 的索引与 `MENUS` 一一对应，
         // 不受标题栏其它子元素（留白、窗口按钮）的数量与顺序影响
-        let mut menus = div().flex().flex_row().items_center();
+        let mut menus = div().flex().flex_row().items_center().pl(px(8.0));
         for (index, spec) in menu::MENUS.iter().enumerate() {
             let open = self.open_menu == Some(index);
             menus = menus.child(
