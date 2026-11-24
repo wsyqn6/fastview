@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, BoxShadow, Context, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Point, Pixels, Window, div, ease_out_quint, hsla, prelude::*, px,
+    Animation, AnimationExt, AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent,
+    MouseMoveEvent, Point, Pixels, Stateful, Window, div, ease_out_quint, hsla, prelude::*, px,
 };
 
 use super::Spike;
@@ -15,6 +15,7 @@ use super::theme::{
     MENU_ITEM_HEIGHT, MENU_WIDTH, RADIUS_ITEM, RADIUS_PANEL, TITLEBAR_HEIGHT,
 };
 use super::widgets::mnemonic_label;
+use crate::menu::{MenuSpec, MenuItem};
 use crate::menu;
 
 impl Spike {
@@ -165,15 +166,32 @@ impl Spike {
         // 贴右边缘时往左收，保证面板完整落在窗口里
         let panel_x = item_x.min((window_width - MENU_WIDTH - 8.0).max(8.0));
 
-        let backdrop = div()
+        let backdrop = self.menu_backdrop(cx);
+        let panel = self.menu_panel(spec, panel_x, palette, t, cx).with_animation(
+            ("menu-panel", self.menu_seq),
+            Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
+            |panel, t| panel.opacity(t).mt(px((1.0 - t) * 4.0)),
+        );
+
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .child(backdrop)
+                .child(panel)
+                .into_any_element(),
+        )
+    }
+
+    /// 菜单展开时的全窗遮罩：负责关闭、顶层菜单切换与滚轮关闭
+    fn menu_backdrop(&self, cx: &mut Context<Self>) -> Div {
+        div()
             .absolute()
             .inset_0()
-            // 菜单打开期间挡住标题栏与内容区，避免误触窗口拖拽/查看器
             .occlude()
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, event: &MouseDownEvent, window, cx| {
-                    // 点在顶层菜单上：切换/执行；点在别处：收起
                     if let Some(index) = this.menu_at(event.position) {
                         this.press_menu(index, window, cx);
                     } else if this.close_menu() {
@@ -188,8 +206,18 @@ impl Spike {
                 if this.close_menu() {
                     cx.notify();
                 }
-            }));
+            }))
+    }
 
+    /// 下拉面板：容器样式 + 所有菜单条目
+    fn menu_panel(
+        &self,
+        spec: &MenuSpec,
+        panel_x: f32,
+        palette: super::theme::Palette,
+        t: crate::text::Text,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let mut panel = div()
             .absolute()
             .left(px(panel_x))
@@ -211,73 +239,78 @@ impl Spike {
             // 面板空白处也不要漏到遮罩上（否则点分隔线会关掉菜单）
             .occlude();
 
-        for (item_index, item) in spec.items.iter().enumerate() {
-            match item {
-                menu::MenuItem::Separator => {
-                    panel = panel.child(
-                        div()
-                            .h(px(1.0))
-                            .mx(px(8.0))
-                            .my(px(4.0))
-                            .bg(palette.separator),
-                    );
-                }
-                menu::MenuItem::Command {
+        for (index, item) in spec.items.iter().enumerate() {
+            panel = match item {
+                MenuItem::Separator => panel.child(
+                    div()
+                        .h(px(1.0))
+                        .mx(px(8.0))
+                        .my(px(4.0))
+                        .bg(palette.separator),
+                ),
+                MenuItem::Command {
                     label,
                     shortcut,
                     mnemonic,
                     cmd,
-                } => {
-                    let cmd = *cmd;
-                    let selected = self.menu_selected == Some(item_index);
-                    let mut row = div()
-                        .id(("menu-row", item_index))
-                        .h(px(MENU_ITEM_HEIGHT))
-                        .px(px(8.0))
-                        .flex()
-                        .items_center()
-                        .rounded(px(RADIUS_ITEM))
-                        .text_size(px(12.0))
-                        .text_color(palette.text)
-                        .when(selected, |this| this.bg(palette.active))
-                        .hover(move |style| style.bg(palette.hover))
-                        // 悬停同步选中项：此时按回车执行的就是鼠标指向的命令
-                        .on_mouse_move(cx.listener(move |this, _, _, cx| {
-                            if this.menu_selected != Some(item_index) {
-                                this.menu_selected = Some(item_index);
-                                cx.notify();
-                            }
-                        }))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.dispatch(cmd, window, cx);
-                        }))
-                        // 菜单展开时条目助记符始终可见（同系统菜单）
-                        .child(mnemonic_label(t.t(*label), *mnemonic, palette.text, true));
-
-                    if !shortcut.is_empty() {
-                        row = row.child(div().flex_1()).child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(palette.text_muted)
-                                .child(*shortcut),
-                        );
-                    }
-                    panel = panel.child(row);
-                }
-            }
+                } => panel.child(self.menu_row(
+                    index,
+                    *label,
+                    shortcut,
+                    *mnemonic,
+                    *cmd,
+                    palette,
+                    t,
+                    cx,
+                )),
+            };
         }
+        panel
+    }
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(backdrop)
-                .child(panel.with_animation(
-                    ("menu-panel", self.menu_seq),
-                    Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
-                    |panel, t| panel.opacity(t).mt(px((1.0 - t) * 4.0)),
-                ))
-                .into_any_element(),
-        )
+    /// 单个菜单条目；悬停同步键盘选中项，按回车执行的就是鼠标指向的命令
+    fn menu_row(
+        &self,
+        index: usize,
+        label: crate::text::TextKey,
+        shortcut: &str,
+        mnemonic: char,
+        cmd: menu::Cmd,
+        palette: super::theme::Palette,
+        t: crate::text::Text,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let mut row = div()
+            .id(("menu-row", index))
+            .h(px(MENU_ITEM_HEIGHT))
+            .px(px(8.0))
+            .flex()
+            .items_center()
+            .rounded(px(RADIUS_ITEM))
+            .text_size(px(12.0))
+            .text_color(palette.text)
+            .when(self.menu_selected == Some(index), |this| this.bg(palette.active))
+            .hover(move |style| style.bg(palette.hover))
+            .on_mouse_move(cx.listener(move |this, _, _, cx| {
+                if this.menu_selected != Some(index) {
+                    this.menu_selected = Some(index);
+                    cx.notify();
+                }
+            }))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.dispatch(cmd, window, cx);
+            }))
+            // 菜单展开时条目助记符始终可见（同系统菜单）
+            .child(mnemonic_label(t.t(label), mnemonic, palette.text, true));
+
+        if !shortcut.is_empty() {
+            row = row.child(div().flex_1()).child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.text_muted)
+                    .child(shortcut.to_string()),
+            );
+        }
+        row
     }
 }
