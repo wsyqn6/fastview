@@ -16,13 +16,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     NCCALCSIZE_PARAMS, WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY,
     WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONUP,
 };
-use windows_sys::Win32::Foundation::{HWND, POINT as SysPoint};
+use windows_sys::Win32::Foundation::{HWND, POINT as SysPoint, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DwmSetWindowAttribute};
-use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+use windows_sys::Win32::Graphics::Gdi::{
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient, GetMonitorInfoW,
+};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetClientRect, GetWindowLongPtrW, ICON_BIG, ICON_SMALL, IsZoomed, LoadIconW,
+    GWL_STYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, ICON_BIG, ICON_SMALL, IsZoomed, LoadIconW,
     SW_MAXIMIZE, SW_NORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
     SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowLongPtrW, ShowWindowAsync,
     WM_SETICON, WS_MAXIMIZEBOX, WS_THICKFRAME,
@@ -47,6 +49,41 @@ pub(crate) fn memory_mb() -> Option<(usize, usize)> {
             counters.PeakWorkingSetSize / 1_048_576,
         )
     })
+}
+
+/// 把窗口居中到当前显示器工作区；SetWindowPos 用物理像素
+pub fn center_window(hwnd: isize) {
+    if hwnd == 0 {
+        return;
+    }
+    let hwnd = hwnd as HWND;
+    unsafe {
+        let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return;
+        }
+        let mut rect: RECT = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut rect) == 0 {
+            return;
+        }
+        let width = rect.right - rect.left;
+        let height = rect.bottom - rect.top;
+        let work_w = info.rcWork.right - info.rcWork.left;
+        let work_h = info.rcWork.bottom - info.rcWork.top;
+        let x = info.rcWork.left + (work_w - width) / 2;
+        let y = info.rcWork.top + (work_h - height) / 2;
+        let _ = SetWindowPos(
+            hwnd,
+            HWND::default(),
+            x,
+            y,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+        );
+    }
 }
 
 /// DWMWA_NCRENDERING_POLICY

@@ -7,12 +7,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui::{Context, PathPromptOptions, RenderImage, Window};
+use gpui::{Context, PathPromptOptions, Pixels, RenderImage, Size, Window, px, size};
 
 use super::Spike;
+use super::theme::{THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
+use super::window_fit;
 use crate::archive::{self, ExtractError};
 use crate::decode::{self, ImageMeta, Preview, Rotation};
 use crate::text::TextKey;
+#[cfg(windows)]
+use crate::win;
 use crate::{folder, viewer};
 
 /// 后台 probe + 解码的结果
@@ -26,6 +30,12 @@ struct Decoded {
 fn stale<C: gpui::AppContext>(this: &gpui::WeakEntity<Spike>, cx: &C, load_id: u64) -> bool {
     this.read_with(cx, |this, _| this.load_id != load_id)
         .unwrap_or(true)
+}
+
+fn size_diff(a: Size<Pixels>, b: Size<Pixels>) -> Pixels {
+    let dx: f32 = (a.width - b.width).into();
+    let dy: f32 = (a.height - b.height).into();
+    px(dx.abs().max(dy.abs()))
 }
 
 /// 统一的后台解码入口：已有 meta 时跳过 probe，预览按需选档
@@ -88,7 +98,7 @@ impl Spike {
                 {
                     self.archive = None;
                 }
-                self.open_path(path, window, cx);
+                self.open_path(path, window, cx, true);
             }
             folder::InputKind::Directory => {
                 self.archive = None;
@@ -101,7 +111,7 @@ impl Spike {
                     .current()
                     .expect("scanned folder has images")
                     .to_path_buf();
-                self.open_path(first, window, cx);
+                self.open_path(first, window, cx, true);
             }
             folder::InputKind::Archive => self.open_archive(path, window, cx),
         }
@@ -115,7 +125,7 @@ impl Spike {
             .filter(|archive| archive.source == path)
             .map(|archive| archive.first.clone())
         {
-            self.open_path(first, window, cx);
+            self.open_path(first, window, cx, true);
             return;
         }
 
@@ -133,7 +143,7 @@ impl Spike {
                 Ok(archive) => {
                     let first = archive.first.clone();
                     this.archive = Some(archive);
-                    this.open_path(first, window, cx);
+                    this.open_path(first, window, cx, true);
                 }
                 Err(ExtractError::NoImages) => {
                     let message = this.text().t(TextKey::NoImages);
@@ -156,8 +166,66 @@ impl Spike {
         cx.notify();
     }
 
+    pub(super) fn toggle_auto_window_size(&mut self, cx: &mut Context<Self>) {
+        self.settings.auto_window_size = !self.settings.auto_window_size;
+        self.window_fit_enabled = self.settings.auto_window_size;
+        self.settings.save();
+        cx.notify();
+    }
+
+    /// 仅在显式打开时调整窗口；用户改过尺寸后本会话不再自动调整
+    fn maybe_fit_window(&mut self, fit: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !fit || !self.window_fit_enabled || window.is_fullscreen() {
+            return;
+        }
+        let current = window.bounds().size;
+        if let Some(last) = self.last_auto_size
+            && size_diff(current, last) > px(2.0)
+        {
+            self.window_fit_enabled = false;
+            return;
+        }
+
+        let Some(image) = self
+            .image
+            .as_ref()
+            .map(|image| image.logical_size(window.scale_factor()))
+        else {
+            return;
+        };
+        let Some(work) = window
+            .display(cx)
+            .or_else(|| cx.primary_display())
+            .map(|display| display.visible_bounds().size)
+        else {
+            return;
+        };
+        let chrome_height = TITLEBAR_HEIGHT
+            + if self.show_thumbs { THUMB_BAR_HEIGHT } else { 0.0 };
+        let chrome = px(chrome_height);
+        let Some(target) =
+            // 下限保证浮层与标题栏不会挤乱；系统最小尺寸仍允许手动缩到更小
+            window_fit::target_size(image, work, chrome, size(px(560.0), px(480.0)))
+        else {
+            return;
+        };
+        self.last_auto_size = Some(target);
+        if size_diff(current, target) <= px(2.0) {
+            return;
+        }
+        window.resize(target);
+        #[cfg(windows)]
+        win::center_window(self.hwnd);
+    }
+
     /// 后台分级解码并替换当前图片
-    pub(super) fn open_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_path(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        fit_window: bool,
+    ) {
         self.load_id = self.load_id.wrapping_add(1);
         let load_id = self.load_id;
         self.loading = true;
@@ -183,6 +251,7 @@ impl Spike {
                 self.loading = false;
                 self.view = viewer::ViewState::default();
                 self.present_cached(path, meta, Rotation::None, denom, texture, cx);
+                self.maybe_fit_window(fit_window, window, cx);
                 self.prefetch_neighbors(window, cx);
                 return;
             }
@@ -227,6 +296,7 @@ impl Spike {
                         this.error = None;
                         let texture = viewer::texture(preview);
                         this.present(path, meta, Rotation::None, denom, texture, window, cx);
+                        this.maybe_fit_window(fit_window, window, cx);
                         // 打点在 present 之后：此时缓存已更新，读到的才是上屏真实占用
                         eprintln!(
                             "[SPIKE] {name} → {}x{} (1/{denom}) via {backend} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
@@ -258,7 +328,7 @@ impl Spike {
         let Some(path) = folder.step(forward).map(|path| path.to_path_buf()) else {
             return;
         };
-        self.open_path(path, window, cx);
+        self.open_path(path, window, cx, false);
     }
 
     /// 旋转当前图片；切图时角度会重置为 0°

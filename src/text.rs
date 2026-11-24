@@ -69,6 +69,7 @@ strings! {
     ThumbnailBar => "缩略图条", "Thumbnail Bar";
     StatusPinned => "状态栏常显", "Keep Status Bar";
     Borderless => "无边框模式", "Borderless";
+    AutoWindowSize => "打开时窗口跟随图片", "Resize window to image on open";
     Done => "完成", "Done";
 
     Loading => "加载中…", "Loading…";

@@ -65,7 +65,7 @@ impl Spike {
             );
         }
 
-        let panel = overlay_panel("info-panel", 360.0, palette)
+        let panel = overlay_panel("info-panel", 360.0, palette, window.viewport_size())
             .shadow_md()
             .child(panel_header(title, t.t(TextKey::EscClose), palette))
             .child(body)

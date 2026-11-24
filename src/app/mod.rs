@@ -26,6 +26,7 @@ pub(crate) mod theme;
 mod thumbs;
 mod titlebar;
 mod widgets;
+mod window_fit;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -79,6 +80,12 @@ pub struct Spike {
     folder: Option<folder::Folder>,
     /// 当前 zip 的临时解压目录；切换来源时自动清理
     archive: Option<archive::Archive>,
+    /// 窗口跟随图片：用户改过窗口尺寸后本会话停用
+    window_fit_enabled: bool,
+    /// 上一次自动设置的窗口尺寸，用来识别用户干预
+    last_auto_size: Option<Size<Pixels>>,
+    /// 是否已记录初始窗口尺寸基线
+    window_fit_baseline: bool,
     /// 缩略图纹理，键为文件路径
     thumbs: HashMap<PathBuf, Arc<RenderImage>>,
     /// 目录 generation：换目录后丢弃旧的缩略图结果
@@ -155,6 +162,7 @@ impl Spike {
         #[cfg(not(windows))]
         let accent = theme::DEFAULT_ACCENT;
         let show_thumbs = settings.show_thumbs;
+        let auto_window_size = settings.auto_window_size;
         let status_pinned = settings.status_pinned;
         let hide_chrome = settings.hide_chrome;
 
@@ -174,6 +182,9 @@ impl Spike {
             sharpen_failed: None,
             folder: None,
             archive: None,
+            window_fit_enabled: auto_window_size,
+            last_auto_size: None,
+            window_fit_baseline: false,
             thumbs: HashMap::new(),
             thumb_gen: 0,
             show_thumbs,
@@ -376,6 +387,10 @@ impl Spike {
 
     /// 一次性窗口钩子：深浅色 / 可见性 / 失焦
     fn ensure_window_hooks(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.window_fit_baseline {
+            self.last_auto_size = Some(window.bounds().size);
+            self.window_fit_baseline = true;
+        }
         if self._appearance_sub.is_none() {
             self._appearance_sub = Some(cx.observe_window_appearance(window, |this, window, cx| {
                 this.refresh_accent();

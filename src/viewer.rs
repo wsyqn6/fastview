@@ -121,7 +121,8 @@ impl ViewState {
         let fit = (view_w / base_w).min(view_h / base_h);
 
         match self.mode {
-            ViewMode::Fit => fit,
+            // 适应只负责装下，不负责放大；放大交给「填充」
+            ViewMode::Fit => fit.min(1.0),
             ViewMode::Fill => (view_w / base_w).max(view_h / base_h),
             ViewMode::Original => 1.0,
             ViewMode::Manual => self.zoom,
@@ -262,6 +263,13 @@ mod tests {
             zoom: 2.0,
             ..ViewState::default()
         }
+    }
+
+    #[test]
+    fn fit_never_upscales_small_image() {
+        let view = ViewState::default();
+        let small = size(px(100.0), px(100.0));
+        assert_eq!(view.scale(viewport(), small), 1.0);
     }
 
     #[test]

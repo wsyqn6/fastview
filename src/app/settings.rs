@@ -67,6 +67,11 @@ fn default_opacity() -> u8 {
     65
 }
 
+/// 打开图片时窗口跟随图片尺寸
+fn default_auto_window_size() -> bool {
+    true
+}
+
 /// 配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -84,6 +89,8 @@ pub struct Settings {
     pub status_pinned: bool,
     #[serde(default)]
     pub hide_chrome: bool,
+    #[serde(default = "default_auto_window_size")]
+    pub auto_window_size: bool,
 }
 
 impl Default for Settings {
@@ -96,6 +103,7 @@ impl Default for Settings {
             show_thumbs: false,
             status_pinned: false,
             hide_chrome: false,
+            auto_window_size: default_auto_window_size(),
         }
     }
 }

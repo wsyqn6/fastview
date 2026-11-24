@@ -107,7 +107,7 @@ impl Spike {
         let palette = self.palette(window);
         let t = self.text();
 
-        let panel = overlay_panel("help-panel", PANEL_WIDTH, palette)
+        let panel = overlay_panel("help-panel", PANEL_WIDTH, palette, window.viewport_size())
             .shadow(vec![
                 BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
                     .blur_radius(px(24.0))

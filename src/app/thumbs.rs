@@ -204,7 +204,7 @@ impl Spike {
                     })
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_path(target.clone(), window, cx);
+                        this.open_path(target.clone(), window, cx, false);
                     }))
                     // 加载前只留中性占位，加载后才出现按比例相框，避免尺寸跳变
                     .when_some(image, |this, image| {

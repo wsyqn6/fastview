@@ -173,9 +173,13 @@ impl Spike {
             .on_click(cx.listener(|this, _, _, cx| this.close_photo_info(cx)))
             .child(t.t(TextKey::EscClose));
 
-        let panel = overlay_panel("photo-info-panel", PANEL_WIDTH, palette)
-            .max_h(px(520.0))
-            .overflow_y_scroll()
+        let panel = overlay_panel(
+            "photo-info-panel",
+            PANEL_WIDTH,
+            palette,
+            window.viewport_size(),
+        )
+        .max_h(px(520.0))
             .shadow_md()
             .child(panel_header(t.t(TextKey::PhotoInfo), close, palette))
             .child(body);

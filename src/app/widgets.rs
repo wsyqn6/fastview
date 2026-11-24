@@ -5,7 +5,8 @@
 
 use gpui::{
     AnyElement, Context, Div, HighlightStyle, Hsla, MouseButton, MouseDownEvent, Path, PathBuilder,
-    Pixels, Point, Stateful, StyledText, UnderlineStyle, Window, WindowControlArea, canvas, div,
+    Pixels, Point, Size, Stateful, StyledText, UnderlineStyle, Window, WindowControlArea, canvas,
+    div,
     hsla, point, prelude::*, px, rgb,
 };
 
@@ -49,11 +50,20 @@ pub fn overlay<V: 'static>(
         .into_any_element()
 }
 
-/// 浮层通用面板样式：宽度、圆角、背景、边框、遮挡
-pub fn overlay_panel(id: &'static str, width: f32, palette: Palette) -> Stateful<Div> {
+/// 浮层通用面板样式：宽度随视口收缩、高度不足时滚动
+pub fn overlay_panel(
+    id: &'static str,
+    width: f32,
+    palette: Palette,
+    viewport: Size<Pixels>,
+) -> Stateful<Div> {
+    let available_w = f32::from(viewport.width) - 32.0;
+    let available_h = f32::from(viewport.height) - 32.0;
     div()
         .id(id)
-        .w(px(width))
+        .w(px(width.min(available_w.max(240.0))))
+        .max_h(px(available_h.max(160.0)))
+        .overflow_y_scroll()
         .flex()
         .flex_col()
         .gap(px(16.0))
