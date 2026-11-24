@@ -3,13 +3,11 @@
 //! 与设置浮层同一套做法：全窗遮罩负责关闭，面板自绘。
 //! 只列当前真实可用的快捷键，避免说明与实现脱节。
 
-use gpui::{
-    AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent, Window, div, hsla,
-    prelude::*, px,
-};
+use gpui::{AnyElement, BoxShadow, Context, Div, Window, div, hsla, prelude::*, px};
 
 use super::Spike;
-use super::theme::{Palette, RADIUS_ITEM, RADIUS_PANEL};
+use super::theme::{Palette, RADIUS_ITEM};
+use super::widgets::{overlay, overlay_panel, panel_header};
 use crate::text::{Text, TextKey};
 
 /// 面板宽度：两列分组
@@ -109,53 +107,18 @@ impl Spike {
         let palette = self.palette(window);
         let t = self.text();
 
-        let backdrop = div()
-            .absolute()
-            .inset_0()
-            .occlude()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_help(cx)),
-            );
-
-        let panel = div()
-            .id("help-panel")
-            .w(px(PANEL_WIDTH))
-            .flex()
-            .flex_col()
-            .gap(px(16.0))
-            .p(px(20.0))
-            .rounded(px(RADIUS_PANEL + 2.0))
-            .bg(palette.menu_bg)
-            .border_1()
-            .border_color(palette.menu_border)
+        let panel = overlay_panel("help-panel", PANEL_WIDTH, palette)
             .shadow(vec![
                 BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
                     .blur_radius(px(24.0))
                     .spread_radius(px(-6.0)),
                 BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
             ])
-            // 面板内空白处不把点击漏给遮罩
-            .occlude()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(palette.text)
-                            .child(t.t(TextKey::ShortcutsTitle)),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.text_muted)
-                            .child(t.t(TextKey::ShortcutsClose)),
-                    ),
-            )
+            .child(panel_header(
+                t.t(TextKey::ShortcutsTitle),
+                t.t(TextKey::ShortcutsClose),
+                palette,
+            ))
             .child(
                 div()
                     .flex()
@@ -164,22 +127,9 @@ impl Spike {
                     .child(column(RIGHT, t, &palette)),
             );
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(backdrop)
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(panel),
-                )
-                .into_any_element(),
-        )
+        Some(overlay(panel.into_any_element(), cx, |this, _, cx| {
+            this.close_help(cx);
+        }))
     }
 }
 

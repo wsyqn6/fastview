@@ -1,15 +1,95 @@
-//! 基础绘制件：窗口控制图标、窗口按钮、助记符文本
+//! 基础绘制件：浮层骨架、窗口控制图标、窗口按钮、助记符文本
 //!
 //! gpui 的 `Path` 只有填充、没有描边，1px 线条得自己算顶点，因此图标全部几何自绘：
 //! `Segoe Fluent Icons` 在 gpui 里匹配不到，字形会渲染成方框。
 
 use gpui::{
-    AnyElement, Div, HighlightStyle, Hsla, Path, PathBuilder, Pixels, Point, StyledText,
-    UnderlineStyle, Window, WindowControlArea, canvas, div, hsla, point, prelude::*, px, rgb,
+    AnyElement, Context, Div, HighlightStyle, Hsla, MouseButton, MouseDownEvent, Path, PathBuilder,
+    Pixels, Point, Stateful, StyledText, UnderlineStyle, Window, WindowControlArea, canvas, div,
+    hsla, point, prelude::*, px, rgb,
 };
 
-use super::theme::{CLOSE_ACTIVE, CLOSE_HOVER, ICON_SIZE, Palette, WINDOW_BUTTON_WIDTH};
+use super::theme::{
+    CLOSE_ACTIVE, CLOSE_HOVER, ICON_SIZE, Palette, RADIUS_PANEL, WINDOW_BUTTON_WIDTH,
+};
 use crate::menu;
+
+/// 浮层外壳：全窗遮罩点击关闭 + 面板居中
+///
+/// `on_close` 接收 `Window`，让设置面板能在关闭时同步窗口背景。
+pub fn overlay<V: 'static>(
+    panel: AnyElement,
+    cx: &mut Context<V>,
+    on_close: impl Fn(&mut V, &mut Window, &mut Context<V>) + 'static,
+) -> AnyElement {
+    let backdrop = div()
+        .absolute()
+        .inset_0()
+        .occlude()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                on_close(this, window, cx);
+            }),
+        );
+
+    div()
+        .absolute()
+        .inset_0()
+        .child(backdrop)
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(panel),
+        )
+        .into_any_element()
+}
+
+/// 浮层通用面板样式：宽度、圆角、背景、边框、遮挡
+pub fn overlay_panel(id: &'static str, width: f32, palette: Palette) -> Stateful<Div> {
+    div()
+        .id(id)
+        .w(px(width))
+        .flex()
+        .flex_col()
+        .gap(px(16.0))
+        .p(px(20.0))
+        .rounded(px(RADIUS_PANEL + 2.0))
+        .bg(palette.menu_bg)
+        .border_1()
+        .border_color(palette.menu_border)
+        // 面板内空白处不把点击漏给遮罩
+        .occlude()
+}
+
+/// 浮层标题行：左侧标题 + 右侧提示 / 关闭入口
+pub fn panel_header(
+    title: impl gpui::IntoElement,
+    status: impl gpui::IntoElement,
+    palette: Palette,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(
+            div()
+                .text_size(px(13.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(palette.text)
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.text_muted)
+                .child(status),
+        )
+}
 
 /// 窗口控制图标类型
 #[derive(Clone, Copy)]

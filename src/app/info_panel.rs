@@ -2,12 +2,11 @@
 //!
 //! 两者只是文案不同，共用一套浮层，避免为占位功能单独造窗口。
 
-use gpui::{
-    AnyElement, Context, MouseButton, MouseDownEvent, Window, div, hsla, prelude::*, px,
-};
+use gpui::{AnyElement, Context, Window, div, hsla, prelude::*, px};
 
 use super::Spike;
-use super::theme::{RADIUS_ITEM, RADIUS_PANEL};
+use super::theme::RADIUS_ITEM;
+use super::widgets::{overlay, overlay_panel, panel_header};
 use crate::text::TextKey;
 
 #[derive(Clone, Copy)]
@@ -56,15 +55,6 @@ impl Spike {
             InfoKind::Update => (t.t(TextKey::CheckUpdate), vec![t.t(TextKey::UpdateBody).to_string()]),
         };
 
-        let backdrop = div()
-            .absolute()
-            .inset_0()
-            .occlude()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_info(cx)),
-            );
-
         let mut body = div().flex().flex_col().gap(px(8.0));
         for line in lines {
             body = body.child(
@@ -75,38 +65,9 @@ impl Spike {
             );
         }
 
-        let panel = div()
-            .id("info-panel")
-            .w(px(360.0))
-            .flex()
-            .flex_col()
-            .gap(px(16.0))
-            .p(px(20.0))
-            .rounded(px(RADIUS_PANEL + 2.0))
-            .bg(palette.menu_bg)
-            .border_1()
-            .border_color(palette.menu_border)
+        let panel = overlay_panel("info-panel", 360.0, palette)
             .shadow_md()
-            .occlude()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(palette.text)
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(11.0))
-                            .text_color(palette.text_muted)
-                            .child(t.t(TextKey::EscClose)),
-                    ),
-            )
+            .child(panel_header(title, t.t(TextKey::EscClose), palette))
             .child(body)
             .child(
                 div().flex().justify_end().child(
@@ -127,21 +88,8 @@ impl Spike {
                 ),
             );
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(backdrop)
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(panel),
-                )
-                .into_any_element(),
-        )
+        Some(overlay(panel.into_any_element(), cx, |this, _, cx| {
+            this.close_info(cx);
+        }))
     }
 }

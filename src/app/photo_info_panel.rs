@@ -4,12 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use gpui::{
-    AnyElement, Context, Div, MouseButton, MouseDownEvent, Window, div, prelude::*, px,
-};
+use gpui::{AnyElement, Context, Div, Window, div, prelude::*, px};
 
 use super::Spike;
 use super::theme::{Palette, RADIUS_ITEM, RADIUS_PANEL};
+use super::widgets::{overlay, overlay_panel, panel_header};
 use crate::metadata::{self, CACHE_LIMIT, CachedPhotoInfo, PhotoInfoData};
 use crate::text::{Text, TextKey};
 
@@ -160,77 +159,30 @@ impl Spike {
         let palette = self.palette(window);
         let t = self.text();
 
-        let backdrop = div()
-            .absolute()
-            .inset_0()
-            .occlude()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseDownEvent, _, cx| this.close_photo_info(cx)),
-            );
-
         let body = match &state.load {
             PhotoInfoLoad::Loading => div().child(t.t(TextKey::PhotoInfoLoading)),
             PhotoInfoLoad::Error(err) => div().child(format!("{}: {}", t.t(TextKey::PhotoInfoError), err)),
             PhotoInfoLoad::Ready(data) => self.render_photo_info_data(&state.path, data, &palette, t),
         };
 
-        let panel = div()
-            .id("photo-info-panel")
-            .w(px(PANEL_WIDTH))
+        let close = div()
+            .id("photo-info-close")
+            .text_color(palette.text_muted)
+            .cursor_pointer()
+            .hover(|style| style.text_color(palette.text))
+            .on_click(cx.listener(|this, _, _, cx| this.close_photo_info(cx)))
+            .child(t.t(TextKey::EscClose));
+
+        let panel = overlay_panel("photo-info-panel", PANEL_WIDTH, palette)
             .max_h(px(520.0))
             .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(16.0))
-            .p(px(20.0))
-            .rounded(px(RADIUS_PANEL + 2.0))
-            .bg(palette.menu_bg)
-            .border_1()
-            .border_color(palette.menu_border)
             .shadow_md()
-            .occlude()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .text_size(px(13.0))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(palette.text)
-                            .child(t.t(TextKey::PhotoInfo)),
-                    )
-                    .child(
-                        div()
-                            .id("photo-info-close")
-                            .text_size(px(11.0))
-                            .text_color(palette.text_muted)
-                            .cursor_pointer()
-                            .hover(|style| style.text_color(palette.text))
-                            .on_click(cx.listener(|this, _, _, cx| this.close_photo_info(cx)))
-                            .child(t.t(TextKey::EscClose)),
-                    ),
-            )
+            .child(panel_header(t.t(TextKey::PhotoInfo), close, palette))
             .child(body);
 
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .child(backdrop)
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(panel),
-                )
-                .into_any_element(),
-        )
+        Some(overlay(panel.into_any_element(), cx, |this, _, cx| {
+            this.close_photo_info(cx);
+        }))
     }
 
     fn render_photo_info_data(
