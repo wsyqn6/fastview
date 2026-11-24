@@ -45,7 +45,7 @@ use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
 #[cfg(windows)]
 use crate::win;
 use crate::text::{Text, TextKey};
-use crate::{cache, decode, folder, metadata, viewer};
+use crate::{archive, cache, decode, folder, metadata, viewer};
 
 pub use boot::run;
 
@@ -77,6 +77,8 @@ pub struct Spike {
     sharpen_failed: Option<(PathBuf, decode::Rotation, u32)>,
     /// 同目录图片列表：翻页与缩略图条共用
     folder: Option<folder::Folder>,
+    /// 当前 zip 的临时解压目录；切换来源时自动清理
+    archive: Option<archive::Archive>,
     /// 缩略图纹理，键为文件路径
     thumbs: HashMap<PathBuf, Arc<RenderImage>>,
     /// 目录 generation：换目录后丢弃旧的缩略图结果
@@ -171,6 +173,7 @@ impl Spike {
             sharpen: None,
             sharpen_failed: None,
             folder: None,
+            archive: None,
             thumbs: HashMap::new(),
             thumb_gen: 0,
             show_thumbs,
@@ -474,7 +477,7 @@ impl Render for Spike {
                     cx.notify();
                 }
                 if let Some(path) = paths.0.first() {
-                    this.open_path(path.clone(), window, cx);
+                    this.open_source(path.clone(), window, cx);
                 }
             }))
             .on_file_drop_exit(cx.listener(|this, _: &FileDropEvent, _, cx| {

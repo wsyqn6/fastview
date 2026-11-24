@@ -23,8 +23,18 @@ pub struct Folder {
 impl Folder {
     /// 扫描 `path` 所在目录；文件不在目录里时返回 `None`
     pub fn scan(path: &Path) -> Option<Self> {
-        let dir = path.parent()?;
         let target = path.file_name()?;
+        let mut folder = Self::scan_dir(path.parent()?)?;
+        // `path` 可能是相对路径，比文件名比整条路径可靠
+        folder.index = folder
+            .files
+            .iter()
+            .position(|entry| entry.file_name() == Some(target))?;
+        Some(folder)
+    }
+
+    /// 扫描目录本身；拖入目录或压缩包时使用，游标落在第一张图
+    pub fn scan_dir(dir: &Path) -> Option<Self> {
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
             .ok()?
             .filter_map(Result::ok)
@@ -35,15 +45,10 @@ impl Folder {
             return None;
         }
         files.sort_by(|a, b| natural_cmp(&file_name(a), &file_name(b)));
-
-        // `path` 可能是相对路径，比文件名比整条路径可靠
-        let index = files
-            .iter()
-            .position(|entry| entry.file_name() == Some(target))?;
         Some(Self {
             dir: dir.to_path_buf(),
             files,
-            index,
+            index: 0,
         })
     }
 
@@ -97,6 +102,29 @@ impl Folder {
     }
 }
 
+/// 外部传入路径的种类，决定打开方式
+pub enum InputKind {
+    Image,
+    Directory,
+    Archive,
+}
+
+/// 按路径本身判断来源；不读文件内容，毫秒级
+pub fn input_kind(path: &Path) -> InputKind {
+    if path.is_dir() {
+        return InputKind::Directory;
+    }
+    let is_zip = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+    if is_zip {
+        InputKind::Archive
+    } else {
+        InputKind::Image
+    }
+}
+
 pub fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -114,7 +142,7 @@ pub fn file_name(path: &Path) -> String {
 }
 
 /// 自然序比较：`2.jpg` 排在 `10.jpg` 之前
-fn natural_cmp(a: &str, b: &str) -> Ordering {
+pub(crate) fn natural_cmp(a: &str, b: &str) -> Ordering {
     let mut left = a.chars().peekable();
     let mut right = b.chars().peekable();
 
@@ -154,8 +182,54 @@ fn take_number(chars: &mut Peekable<Chars<'_>>) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::natural_cmp;
+    use super::{Folder, input_kind, natural_cmp};
+    use crate::test_util::TempDir;
     use std::cmp::Ordering;
+    use std::path::Path;
+
+    fn touch(dir: &Path, name: &str) {
+        std::fs::write(dir.join(name), b"x").expect("write fixture");
+    }
+
+    #[test]
+    fn scan_dir_starts_at_first_image_in_natural_order() {
+        let dir = TempDir::new("folder");
+        touch(dir.path(), "img_10.jpg");
+        touch(dir.path(), "img_2.jpg");
+        touch(dir.path(), "note.txt");
+
+        let folder = Folder::scan_dir(dir.path()).expect("scan dir");
+        assert_eq!(folder.index, 0);
+        let current = folder.current().expect("current image");
+        assert_eq!(current.file_name().unwrap().to_string_lossy(), "img_2.jpg");
+    }
+
+    #[test]
+    fn input_kind_recognizes_directory_zip_and_image() {
+        use super::InputKind;
+
+        let dir = TempDir::new("kind");
+        assert!(matches!(
+            input_kind(dir.path()),
+            InputKind::Directory
+        ));
+        assert!(matches!(
+            input_kind(Path::new("C:\\albums\\ALBUM.ZIP")),
+            InputKind::Archive
+        ));
+        assert!(matches!(
+            input_kind(Path::new("photo.jpg")),
+            InputKind::Image
+        ));
+    }
+
+    #[test]
+    fn scan_dir_returns_none_when_no_images() {
+        let dir = TempDir::new("folder");
+        touch(dir.path(), "note.txt");
+
+        assert!(Folder::scan_dir(dir.path()).is_none());
+    }
 
     #[test]
     fn orders_numbers_by_value() {

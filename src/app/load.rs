@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use gpui::{Context, PathPromptOptions, RenderImage, Window};
 
 use super::Spike;
+use crate::archive::{self, ExtractError};
 use crate::decode::{self, ImageMeta, Preview, Rotation};
 use crate::text::TextKey;
 use crate::{folder, viewer};
@@ -64,10 +65,95 @@ impl Spike {
             let Some(path) = paths.into_iter().next() else {
                 return;
             };
-            this.update_in(cx, |this, window, cx| this.open_path(path, window, cx))
+            this.update_in(cx, |this, window, cx| this.open_source(path, window, cx))
                 .ok();
         })
         .detach();
+    }
+
+    /// 外部路径统一入口：图片、目录、zip 分流
+    pub(super) fn open_source(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match folder::input_kind(&path) {
+            folder::InputKind::Image => {
+                // 包内翻页仍属于当前 zip，不能提前删掉临时目录
+                if !self
+                    .archive
+                    .as_ref()
+                    .is_some_and(|archive| archive.contains(&path))
+                {
+                    self.archive = None;
+                }
+                self.open_path(path, window, cx);
+            }
+            folder::InputKind::Directory => {
+                self.archive = None;
+                let Some(folder) = folder::Folder::scan_dir(&path) else {
+                    let message = self.text().t(TextKey::NoImages);
+                    self.show_error(message, cx);
+                    return;
+                };
+                let first = folder
+                    .current()
+                    .expect("scanned folder has images")
+                    .to_path_buf();
+                self.open_path(first, window, cx);
+            }
+            folder::InputKind::Archive => self.open_archive(path, window, cx),
+        }
+    }
+
+    /// zip 解压放到后台，完成后复用普通图片的打开流程
+    fn open_archive(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(first) = self
+            .archive
+            .as_ref()
+            .filter(|archive| archive.source == path)
+            .map(|archive| archive.first.clone())
+        {
+            self.open_path(first, window, cx);
+            return;
+        }
+
+        self.load_id = self.load_id.wrapping_add(1);
+        self.loading = true;
+        self.error = None;
+        cx.notify();
+
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { archive::extract_images(&path) })
+                .await;
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(archive) => {
+                    let first = archive.first.clone();
+                    this.archive = Some(archive);
+                    this.open_path(first, window, cx);
+                }
+                Err(ExtractError::NoImages) => {
+                    let message = this.text().t(TextKey::NoImages);
+                    this.show_error(message, cx);
+                }
+                Err(ExtractError::Failed(message)) => {
+                    eprintln!("[SPIKE] open archive failed: {message}");
+                    let message = this.text().t(TextKey::ArchiveFailed);
+                    this.show_error(message, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn show_error(&mut self, message: &str, cx: &mut Context<Self>) {
+        self.loading = false;
+        self.error = Some(message.to_string());
+        cx.notify();
     }
 
     /// 后台分级解码并替换当前图片

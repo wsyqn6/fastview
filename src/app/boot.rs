@@ -101,7 +101,7 @@ pub fn run() {
             if let Some(path) = initial_path.clone() {
                 let weak = view.downgrade();
                 window.defer(cx, move |window, cx| {
-                    weak.update(cx, |this, cx| this.open_path(path, window, cx))
+                    weak.update(cx, |this, cx| this.open_source(path, window, cx))
                         .ok();
                 });
             }

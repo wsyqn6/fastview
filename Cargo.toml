@@ -34,6 +34,8 @@ image = { version = "0.25", default-features = false, features = [
     "tiff",
 ] }
 exif = { package = "kamadak-exif", version = "0.6" }
+# 只解析无加密 zip 的 deflate 条目；解压到临时目录后复用现有路径解码链路
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 resvg = "0.46"

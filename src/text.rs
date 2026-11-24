@@ -72,12 +72,14 @@ strings! {
     Done => "完成", "Done";
 
     Loading => "加载中…", "Loading…";
-    DropOrOpen => "拖入图片，或按 Ctrl+O 打开", "Drop an image, or press Ctrl+O";
-    Formats => "支持 JPEG / PNG / WebP / GIF / BMP / TIFF", "Supports JPEG / PNG / WebP / GIF / BMP / TIFF";
+    DropOrOpen => "拖入图片、文件夹或 zip，或按 Ctrl+O 打开", "Drop images, a folder or a zip, or press Ctrl+O";
+    Formats => "支持 JPEG / PNG / WebP / GIF / BMP / TIFF / ZIP", "Supports JPEG / PNG / WebP / GIF / BMP / TIFF / ZIP";
     ModeOriginal => "原始", "Actual";
     ModeFill => "填充", "Fill";
-    DropHint => "松开以打开图片", "Drop to open image";
+    DropHint => "松开以打开", "Drop to open";
     OpenPrompt => "打开图片", "Open Image";
+    NoImages => "没有可查看的图片", "No images found";
+    ArchiveFailed => "无法打开压缩包", "Cannot open archive";
 
     ShortcutsTitle => "快捷键", "Shortcuts";
     ShortcutsClose => "H / Esc 关闭", "H / Esc to close";

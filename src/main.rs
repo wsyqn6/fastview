@@ -11,6 +11,7 @@
 //! 应用实现见 `app` 模块；首帧不做整图解码（见 `decode` 模块）。
 
 mod app;
+mod archive;
 mod cache;
 #[cfg(windows)]
 mod com;
@@ -20,6 +21,8 @@ mod menu;
 mod metadata;
 #[cfg(windows)]
 mod shell;
+#[cfg(test)]
+mod test_util;
 mod text;
 mod viewer;
 #[cfg(windows)]
