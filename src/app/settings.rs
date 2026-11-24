@@ -67,15 +67,9 @@ fn default_opacity() -> u8 {
     65
 }
 
-fn default_version() -> u32 {
-    2
-}
-
 /// 配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
-    #[serde(default = "default_version")]
-    pub version: u32,
     #[serde(default)]
     pub language: Language,
     #[serde(default)]
@@ -95,7 +89,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            version: default_version(),
             language: Language::System,
             theme: Theme::System,
             material: Material::Acrylic,
@@ -119,7 +112,7 @@ impl Settings {
         };
         match serde_json::from_str::<Self>(&text) {
             Ok(mut settings) => {
-                settings.normalize();
+                settings.clamp_opacity();
                 settings
             }
             Err(error) => {
@@ -165,12 +158,8 @@ impl Settings {
         self.opacity < 100
     }
 
-    fn normalize(&mut self) {
-        // v1 的 material=none 同时表示「实色」；迁移后它由 opacity=100 表达。
-        if self.version < 2 && self.material == Material::None {
-            self.opacity = 100;
-        }
-        self.version = default_version();
+    /// 配置里手写了 >100 的不透明度时，加载阶段收回到合法范围
+    fn clamp_opacity(&mut self) {
         self.opacity = self.opacity.min(100);
     }
 
