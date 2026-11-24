@@ -202,133 +202,19 @@ impl Spike {
             || data.taken_at.is_some();
         let has_exposure = data.iso.is_some() || data.shutter.is_some() || data.aperture.is_some();
 
-        let mut column = div().flex().flex_col().gap(px(14.0));
-        column = column.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(16.0))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(palette.text)
-                        .child(folder_name(path)),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(palette.text_muted)
-                        .child(path.to_string_lossy().into_owned()),
-                ),
-        );
-        column = column.child(
-            div()
-                .flex()
-                .gap(px(8.0))
-                .child(metric_card(
-                    t.t(TextKey::FieldDimensions),
-                    format!("{} × {}", display.0, display.1),
-                    palette,
-                ))
-                .child(metric_card(
-                    t.t(TextKey::FieldFileSize),
-                    metadata::format_size(data.size_bytes),
-                    palette,
-                ))
-                .child(metric_card(
-                    t.t(TextKey::FieldFormat),
-                    data.format.clone().unwrap_or_else(|| missing.to_string()),
-                    palette,
-                )),
-        );
+        let mut column = div()
+            .flex()
+            .flex_col()
+            .gap(px(14.0))
+            .child(file_header(path, palette))
+            .child(metric_cards(display, data, missing, palette, t));
 
         if has_camera {
-            let mut card = div()
-                .flex()
-                .flex_col()
-                .gap(px(10.0))
-                .p(px(12.0))
-                .rounded(px(RADIUS_PANEL))
-                .bg(palette.card_bg)
-                .border_1()
-                .border_color(palette.menu_border)
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(palette.text_muted)
-                        .child(t.t(TextKey::PhotoInfoCapture)),
-                );
-            card = card.child(detail_row(
-                t.t(TextKey::FieldCamera),
-                camera,
-                missing,
-                palette,
-            ));
-            card = card.child(detail_row(
-                t.t(TextKey::FieldLens),
-                data.lens.clone(),
-                missing,
-                palette,
-            ));
-            card = card.child(detail_row(
-                t.t(TextKey::FieldTakenAt),
-                data.taken_at.clone(),
-                missing,
-                palette,
-            ));
-            card = card.child(detail_row(
-                t.t(TextKey::FieldFocalLength),
-                data.focal_length.clone(),
-                missing,
-                palette,
-            ));
-            column = column.child(card);
+            column = column.child(capture_card(data, camera, missing, palette, t));
         }
-
         if has_exposure {
-            column = column.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(10.0))
-                    .p(px(12.0))
-                    .rounded(px(RADIUS_PANEL))
-                    .bg(palette.card_bg)
-                    .border_1()
-                    .border_color(palette.menu_border)
-                    .child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(palette.text_muted)
-                            .child(t.t(TextKey::GroupExposure)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(12.0))
-                            .child(exposure_cell(
-                                t.t(TextKey::FieldIso),
-                                data.iso.map(|value| value.to_string()),
-                                missing,
-                                palette,
-                            ))
-                            .child(exposure_cell(
-                                t.t(TextKey::FieldShutter),
-                                data.shutter.clone(),
-                                missing,
-                                palette,
-                            ))
-                            .child(exposure_cell(
-                                t.t(TextKey::FieldAperture),
-                                data.aperture.clone(),
-                                missing,
-                                palette,
-                            )),
-                    ),
-            );
+            column = column.child(exposure_card(data, missing, palette, t));
         }
-
         if data.exif_unavailable && !has_camera && !has_exposure {
             column = column.child(
                 div()
@@ -339,6 +225,142 @@ impl Spike {
         }
         column
     }
+}
+
+fn file_header(path: &Path, palette: &Palette) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(
+            div()
+                .text_size(px(16.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(palette.text)
+                .child(folder_name(path)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(palette.text_muted)
+                .child(path.to_string_lossy().into_owned()),
+        )
+}
+
+fn metric_cards(
+    display: (u32, u32),
+    data: &PhotoInfoData,
+    missing: &str,
+    palette: &Palette,
+    t: Text,
+) -> Div {
+    div()
+        .flex()
+        .gap(px(8.0))
+        .child(metric_card(
+            t.t(TextKey::FieldDimensions),
+            format!("{} × {}", display.0, display.1),
+            palette,
+        ))
+        .child(metric_card(
+            t.t(TextKey::FieldFileSize),
+            metadata::format_size(data.size_bytes),
+            palette,
+        ))
+        .child(metric_card(
+            t.t(TextKey::FieldFormat),
+            data.format.clone().unwrap_or_else(|| missing.to_string()),
+            palette,
+        ))
+}
+
+fn capture_card(
+    data: &PhotoInfoData,
+    camera: Option<String>,
+    missing: &str,
+    palette: &Palette,
+    t: Text,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(10.0))
+        .p(px(12.0))
+        .rounded(px(RADIUS_PANEL))
+        .bg(palette.card_bg)
+        .border_1()
+        .border_color(palette.menu_border)
+        .child(
+            div()
+                .text_size(px(10.0))
+                .text_color(palette.text_muted)
+                .child(t.t(TextKey::PhotoInfoCapture)),
+        )
+        .child(detail_row(
+            t.t(TextKey::FieldCamera),
+            camera,
+            missing,
+            palette,
+        ))
+        .child(detail_row(
+            t.t(TextKey::FieldLens),
+            data.lens.clone(),
+            missing,
+            palette,
+        ))
+        .child(detail_row(
+            t.t(TextKey::FieldTakenAt),
+            data.taken_at.clone(),
+            missing,
+            palette,
+        ))
+        .child(detail_row(
+            t.t(TextKey::FieldFocalLength),
+            data.focal_length.clone(),
+            missing,
+            palette,
+        ))
+}
+
+fn exposure_card(data: &PhotoInfoData, missing: &str, palette: &Palette, t: Text) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(10.0))
+        .p(px(12.0))
+        .rounded(px(RADIUS_PANEL))
+        .bg(palette.card_bg)
+        .border_1()
+        .border_color(palette.menu_border)
+        .child(
+            div()
+                .text_size(px(10.0))
+                .text_color(palette.text_muted)
+                .child(t.t(TextKey::GroupExposure)),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(12.0))
+                .child(exposure_cell(
+                    t.t(TextKey::FieldIso),
+                    data.iso.map(|value| value.to_string()),
+                    missing,
+                    palette,
+                ))
+                .child(exposure_cell(
+                    t.t(TextKey::FieldShutter),
+                    data.shutter.clone(),
+                    missing,
+                    palette,
+                ))
+                .child(exposure_cell(
+                    t.t(TextKey::FieldAperture),
+                    data.aperture.clone(),
+                    missing,
+                    palette,
+                )),
+        )
 }
 
 fn metric_card(label: &str, value: String, palette: &Palette) -> Div {
