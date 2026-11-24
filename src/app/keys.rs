@@ -78,44 +78,7 @@ impl Spike {
         // 任何按键都算交互：状态栏重新出现并重置淡出计时
         self.touch_status(cx);
 
-        // 设置面板：Ctrl+, 开关，Esc 关闭，其余按键不落到查看器
-        if modifiers.control && !modifiers.alt && (key == "," || key == "comma") {
-            cx.stop_propagation();
-            self.toggle_settings(window, cx);
-            return;
-        }
-        if self.settings_open {
-            if key.eq_ignore_ascii_case("escape") {
-                self.close_settings(window, cx);
-            }
-            return;
-        }
-        // 快捷键说明：Esc / H / ? 关闭，其余按键不落到查看器
-        if self.help_open {
-            if key.eq_ignore_ascii_case("escape")
-                || key.eq_ignore_ascii_case("h")
-                || key == "?"
-                || (modifiers.shift && key == "/")
-            {
-                self.close_help(cx);
-            }
-            return;
-        }
-        // 关于 / 检查更新
-        if self.info.is_some() {
-            if key.eq_ignore_ascii_case("escape") || key.eq_ignore_ascii_case("enter") {
-                self.close_info(cx);
-            }
-            return;
-        }
-        // 照片信息：Esc 或 I 关闭（与打开时的 I 对称），其余按键不落到查看器
-        if self.photo_info.is_some() {
-            let plain = !modifiers.control && !modifiers.alt && !modifiers.platform;
-            if key.eq_ignore_ascii_case("escape")
-                || (plain && key.eq_ignore_ascii_case("i"))
-            {
-                self.close_photo_info(cx);
-            }
+        if self.handle_overlay_key(key, modifiers, window, cx) {
             return;
         }
 
@@ -138,44 +101,113 @@ impl Spike {
 
         // 单键快捷键只在无修饰键时生效，避免 Alt+数字 等被误当成缩放
         let plain = !modifiers.control && !modifiers.alt && !modifiers.platform;
+        if self.handle_global_key(key, modifiers, plain, window, cx) {
+            return;
+        }
+        self.handle_image_key(key, modifiers, plain, window, cx);
+    }
 
+    /// 浮层优先消费键盘；返回 true 表示本次按键已处理完毕
+    fn handle_overlay_key(
+        &mut self,
+        key: &str,
+        modifiers: gpui::Modifiers,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // 设置面板：Ctrl+, 开关，Esc 关闭，其余按键不落到查看器
+        if modifiers.control && !modifiers.alt && (key == "," || key == "comma") {
+            cx.stop_propagation();
+            self.toggle_settings(window, cx);
+            return true;
+        }
+        if self.settings_open {
+            if key.eq_ignore_ascii_case("escape") {
+                self.close_settings(window, cx);
+            }
+            return true;
+        }
+        // 快捷键说明：Esc / H / ? 关闭，其余按键不落到查看器
+        if self.help_open {
+            if key.eq_ignore_ascii_case("escape")
+                || key.eq_ignore_ascii_case("h")
+                || key == "?"
+                || (modifiers.shift && key == "/")
+            {
+                self.close_help(cx);
+            }
+            return true;
+        }
+        // 关于 / 检查更新
+        if self.info.is_some() {
+            if key.eq_ignore_ascii_case("escape") || key.eq_ignore_ascii_case("enter") {
+                self.close_info(cx);
+            }
+            return true;
+        }
+        // 照片信息：Esc 或 I 关闭（与打开时的 I 对称），其余按键不落到查看器
+        if self.photo_info.is_some() {
+            let plain = !modifiers.control && !modifiers.alt && !modifiers.platform;
+            if key.eq_ignore_ascii_case("escape") || (plain && key.eq_ignore_ascii_case("i")) {
+                self.close_photo_info(cx);
+            }
+            return true;
+        }
+        false
+    }
+
+    /// 不依赖当前图片的全局快捷键；返回 true 表示已处理
+    fn handle_global_key(
+        &mut self,
+        key: &str,
+        modifiers: gpui::Modifiers,
+        plain: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if key.eq_ignore_ascii_case("escape") {
             if window.is_fullscreen() {
                 self.toggle_fullscreen(window, cx);
             }
-            return;
+            return true;
         }
-
         if modifiers.control && !modifiers.alt && key.eq_ignore_ascii_case("o") {
             self.open_file(cx);
-            return;
+            return true;
         }
-
         if plain && (key.eq_ignore_ascii_case("f11") || key.eq_ignore_ascii_case("f")) {
             self.toggle_fullscreen(window, cx);
-            return;
+            return true;
         }
-
-        // 无边框 / 帮助不依赖有没有图片，放在图片守卫之前
         if plain && key.eq_ignore_ascii_case("v") {
             self.toggle_chrome(cx);
-            return;
+            return true;
         }
         if plain
             && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
         {
             self.toggle_help(cx);
-            return;
+            return true;
         }
         if plain && key.eq_ignore_ascii_case("i") {
             self.toggle_photo_info(window, cx);
-            return;
+            return true;
         }
+        false
+    }
 
+    /// 当前图片相关的快捷键
+    fn handle_image_key(
+        &mut self,
+        key: &str,
+        modifiers: gpui::Modifiers,
+        plain: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.image.is_none() || !plain {
             return;
         }
-
         match key {
             "0" => self.set_mode(viewer::ViewMode::Fit, window),
             "1" => self.set_mode(viewer::ViewMode::Original, window),
