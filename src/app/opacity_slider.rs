@@ -4,8 +4,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Render, WeakEntity,
-    Window, div, prelude::*, px,
+    Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point, Render,
+    WeakEntity, Window, div, prelude::*, px,
 };
 
 use super::Spike;

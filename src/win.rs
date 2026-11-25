@@ -13,21 +13,21 @@ use windows::Win32::Foundation::{HWND as SubclassHwnd, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTMAXBUTTON, HTRIGHT,
-    NCCALCSIZE_PARAMS, WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCDESTROY,
-    WM_NCCALCSIZE, WM_NCHITTEST, WM_NCLBUTTONUP,
+    NCCALCSIZE_PARAMS, WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCCALCSIZE,
+    WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONUP,
 };
 use windows_sys::Win32::Foundation::{HWND, POINT as SysPoint, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
-    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient, GetMonitorInfoW,
+    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient,
 };
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_STYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, ICON_BIG, ICON_SMALL, IsZoomed, LoadIconW,
-    SW_MAXIMIZE, SW_NORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-    SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowLongPtrW, ShowWindowAsync,
-    WM_SETICON, WS_MAXIMIZEBOX, WS_THICKFRAME,
+    GWL_STYLE, GetClientRect, GetWindowLongPtrW, GetWindowRect, ICON_BIG, ICON_SMALL, IsZoomed,
+    LoadIconW, SW_MAXIMIZE, SW_NORMAL, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowLongPtrW, SetWindowPos,
+    ShowWindowAsync, WM_SETICON, WS_MAXIMIZEBOX, WS_THICKFRAME,
 };
 
 use crate::app::theme::{TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};
@@ -43,12 +43,10 @@ pub(crate) fn memory_mb() -> Option<(usize, usize)> {
     counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
     // SAFETY: counters 与 cb 匹配；GetCurrentProcess 返回伪句柄，无需关闭
     let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
-    (ok != 0).then(|| {
-        (
-            counters.WorkingSetSize / 1_048_576,
-            counters.PeakWorkingSetSize / 1_048_576,
-        )
-    })
+    (ok != 0).then_some((
+        counters.WorkingSetSize / 1_048_576,
+        counters.PeakWorkingSetSize / 1_048_576,
+    ))
 }
 
 /// 把窗口居中到当前显示器工作区；SetWindowPos 用物理像素
@@ -137,10 +135,8 @@ struct WindowCompositionAttributeData {
     data_size: u32,
 }
 
-type SetWindowCompositionAttributeFn = unsafe extern "system" fn(
-    HWND,
-    *mut WindowCompositionAttributeData,
-) -> i32;
+type SetWindowCompositionAttributeFn =
+    unsafe extern "system" fn(HWND, *mut WindowCompositionAttributeData) -> i32;
 
 /// 期望的系统 DWM 材质（`DWMSBT_*`）；拖动时实际临时设为 NONE
 static ACTIVE_BACKDROP: AtomicU32 = AtomicU32::new(DWMSBT_NONE);
@@ -158,6 +154,8 @@ pub enum Backdrop {
 }
 
 /// 把资源里的 ICO 设为窗口图标，任务栏与 Alt+Tab 随之生效。
+// MAKEINTRESOURCE(1) 必须是整数 1，不能用按对齐生成的 dangling 指针
+#[allow(clippy::manual_dangling_ptr)]
 pub fn apply_window_icon(hwnd: HWND) {
     unsafe {
         let instance = GetModuleHandleA(core::ptr::null());
@@ -180,8 +178,7 @@ pub fn apply_window_icon(hwnd: HWND) {
 pub fn apply_window_frame(hwnd: HWND, border_rgb: u32, prefer_none: bool) {
     let border = colorref(border_rgb);
 
-    let hidden = prefer_none
-        && set_attribute_quiet(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE);
+    let hidden = prefer_none && set_attribute_quiet(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE);
     if !hidden {
         set_attribute_quiet(hwnd, DWMWA_BORDER_COLOR, border);
     }
@@ -328,7 +325,8 @@ unsafe extern "system" fn window_frame_proc(
         WM_NCDESTROY => {
             resume_backdrop(raw);
             unsafe {
-                let _ = RemoveWindowSubclass(hwnd, Some(window_frame_proc), DRAG_BACKDROP_SUBCLASS_ID);
+                let _ =
+                    RemoveWindowSubclass(hwnd, Some(window_frame_proc), DRAG_BACKDROP_SUBCLASS_ID);
             }
         }
         WM_NCCALCSIZE => {
@@ -358,10 +356,11 @@ unsafe extern "system" fn window_frame_proc(
             if result.0 == HTCAPTION as isize && unsafe { max_button_hit(hwnd, lparam) } {
                 return LRESULT(HTMAXBUTTON as isize);
             }
-            if result.0 == HTCLIENT as isize && unsafe { IsZoomed(raw) } == 0 {
-                if let Some(hit) = unsafe { edge_hit(hwnd, lparam) } {
-                    return LRESULT(hit);
-                }
+            if result.0 == HTCLIENT as isize
+                && unsafe { IsZoomed(raw) } == 0
+                && let Some(hit) = unsafe { edge_hit(hwnd, lparam) }
+            {
+                return LRESULT(hit);
             }
             return result;
         }
@@ -483,9 +482,7 @@ fn resume_backdrop(hwnd: HWND) {
 ///
 /// 注册表里存的是 `0xAABBGGRR`。
 pub fn system_accent() -> Option<u32> {
-    use windows::Win32::System::Registry::{
-        HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW,
-    };
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
     use windows::core::w;
 
     let mut raw = 0u32;
@@ -520,7 +517,10 @@ fn set_accent_policy(hwnd: HWND, state: u32) -> bool {
         return false;
     }
     let Some(address) = (unsafe {
-        GetProcAddress(user32, c"SetWindowCompositionAttribute".as_ptr().cast::<u8>())
+        GetProcAddress(
+            user32,
+            c"SetWindowCompositionAttribute".as_ptr().cast::<u8>(),
+        )
     }) else {
         return false;
     };

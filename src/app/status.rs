@@ -6,8 +6,7 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, Context, Pixels, Size, div, ease_out_quint, px,
-    prelude::*,
+    Animation, AnimationExt, AnyElement, Context, Pixels, Size, div, ease_out_quint, prelude::*, px,
 };
 
 use super::Spike;
@@ -78,12 +77,9 @@ impl Spike {
         self.status_timer_gen = self.status_timer_gen.wrapping_add(1);
         let timer_gen = self.status_timer_gen;
         cx.spawn(async move |this, cx| {
-            loop {
-                let Some((gen_now, deadline)) =
-                    this.read_with(cx, |s, _| (s.status_timer_gen, s.status_deadline)).ok()
-                else {
-                    break;
-                };
+            while let Ok((gen_now, deadline)) =
+                this.read_with(cx, |s, _| (s.status_timer_gen, s.status_deadline))
+            {
                 if gen_now != timer_gen {
                     break;
                 }
@@ -95,8 +91,8 @@ impl Spike {
                     cx.background_executor().timer(wait).await;
                 }
                 // 醒来后复核：期间可能有新的活动把截止时间往后推
-                let Some((gen_now, deadline)) =
-                    this.read_with(cx, |s, _| (s.status_timer_gen, s.status_deadline)).ok()
+                let Ok((gen_now, deadline)) =
+                    this.read_with(cx, |s, _| (s.status_timer_gen, s.status_deadline))
                 else {
                     break;
                 };
@@ -146,11 +142,11 @@ impl Spike {
         if let Some(folder) = &self.folder
             && folder.files.len() > 1
         {
-            row = row.child(
-                div()
-                    .text_color(palette.text_muted)
-                    .child(format!("{} / {}", folder.index + 1, folder.files.len())),
-            );
+            row = row.child(div().text_color(palette.text_muted).child(format!(
+                "{} / {}",
+                folder.index + 1,
+                folder.files.len()
+            )));
         }
         row = row.child(
             div()
@@ -165,11 +161,7 @@ impl Spike {
             );
         }
         if let Some(mode) = zoom_mode_label(self.view.mode) {
-            row = row.child(
-                div()
-                    .text_color(palette.text_muted)
-                    .child(t.t(mode)),
-            );
+            row = row.child(div().text_color(palette.text_muted).child(t.t(mode)));
         }
         row = row.child(
             div()

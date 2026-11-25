@@ -99,7 +99,12 @@ impl Spike {
                     Ok(data) => {
                         let data = Arc::new(data);
                         if let Ok((len, modified)) = metadata::fingerprint(&path) {
-                            this.remember_photo_info(path.clone(), len, modified, Arc::clone(&data));
+                            this.remember_photo_info(
+                                path.clone(),
+                                len,
+                                modified,
+                                Arc::clone(&data),
+                            );
                         }
                         PhotoInfoLoad::Ready(data)
                     }
@@ -115,10 +120,7 @@ impl Spike {
 
     fn cached_photo_info(&mut self, path: &Path) -> Option<Arc<PhotoInfoData>> {
         let (len, modified) = metadata::fingerprint(path).ok()?;
-        let matched = self
-            .photo_info_cache
-            .get(path)?
-            .matches(len, modified);
+        let matched = self.photo_info_cache.get(path)?.matches(len, modified);
         if !matched {
             return None;
         }
@@ -134,7 +136,11 @@ impl Spike {
         modified: SystemTime,
         data: Arc<PhotoInfoData>,
     ) {
-        let cached = CachedPhotoInfo { len, modified, data };
+        let cached = CachedPhotoInfo {
+            len,
+            modified,
+            data,
+        };
         self.photo_info_cache.insert(path.clone(), cached);
         self.touch_photo_info_order(&path);
         while self.photo_info_cache.len() > CACHE_LIMIT {
@@ -161,8 +167,12 @@ impl Spike {
 
         let body = match &state.load {
             PhotoInfoLoad::Loading => div().child(t.t(TextKey::PhotoInfoLoading)),
-            PhotoInfoLoad::Error(err) => div().child(format!("{}: {}", t.t(TextKey::PhotoInfoError), err)),
-            PhotoInfoLoad::Ready(data) => self.render_photo_info_data(&state.path, data, &palette, t),
+            PhotoInfoLoad::Error(err) => {
+                div().child(format!("{}: {}", t.t(TextKey::PhotoInfoError), err))
+            }
+            PhotoInfoLoad::Ready(data) => {
+                self.render_photo_info_data(&state.path, data, &palette, t)
+            }
         };
 
         let close = div()
@@ -180,9 +190,9 @@ impl Spike {
             window.viewport_size(),
         )
         .max_h(px(520.0))
-            .shadow_md()
-            .child(panel_header(t.t(TextKey::PhotoInfo), close, palette))
-            .child(body);
+        .shadow_md()
+        .child(panel_header(t.t(TextKey::PhotoInfo), close, palette))
+        .child(body);
 
         Some(overlay(panel.into_any_element(), cx, |this, _, cx| {
             this.close_photo_info(cx);
@@ -417,27 +427,25 @@ fn detail_row(label: &str, value: Option<String>, missing: &str, palette: &Palet
 }
 
 fn exposure_cell(label: &str, value: Option<String>, missing: &str, palette: &Palette) -> Div {
-    div()
-        .flex_1()
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(palette.text_muted)
-                        .child(label.to_string()),
-                )
-                .child(
-                    div()
-                        .text_size(px(14.0))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(palette.text)
-                        .child(value.unwrap_or_else(|| missing.to_string())),
-                ),
-        )
+    div().flex_1().child(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(palette.text_muted)
+                    .child(label.to_string()),
+            )
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(palette.text)
+                    .child(value.unwrap_or_else(|| missing.to_string())),
+            ),
+    )
 }
 
 fn camera_name(data: &PhotoInfoData) -> Option<String> {

@@ -30,7 +30,12 @@ pub(super) struct MinimapLayout {
 }
 
 /// 图片超出视口时才显示
-pub(super) fn should_show(image: &LoadedImage, view: Size<Pixels>, view_state: &ViewState, scale_factor: f32) -> bool {
+pub(super) fn should_show(
+    image: &LoadedImage,
+    view: Size<Pixels>,
+    view_state: &ViewState,
+    scale_factor: f32,
+) -> bool {
     let base = image.logical_size(scale_factor);
     let bounds = view_state.image_bounds(view, base);
     let image_w: f32 = bounds.size.width.into();
@@ -74,7 +79,12 @@ pub(super) fn layout(base: Size<Pixels>, view: Size<Pixels>) -> MinimapLayout {
 }
 
 /// 当前可视区在缩略图矩形中的位置
-fn highlight(base: Size<Pixels>, view: Size<Pixels>, view_state: &ViewState, layout: &MinimapLayout) -> Bounds<Pixels> {
+fn highlight(
+    base: Size<Pixels>,
+    view: Size<Pixels>,
+    view_state: &ViewState,
+    layout: &MinimapLayout,
+) -> Bounds<Pixels> {
     let image_bounds = view_state.image_bounds(view, base);
     let zoom = view_state.scale(view, base);
     let view_w: f32 = view.width.into();
@@ -198,7 +208,11 @@ pub(super) fn render(
                 .h(map.inner.height)
                 .rounded(px(2.0))
                 .overflow_hidden()
-                .child(img(image.image.clone()).object_fit(ObjectFit::Fill).size_full())
+                .child(
+                    img(image.image.clone())
+                        .object_fit(ObjectFit::Fill)
+                        .size_full(),
+                )
                 .child(
                     div()
                         .absolute()
@@ -238,8 +252,14 @@ mod tests {
         let inner_w: f32 = map.inner.width.into();
         let inner_h: f32 = map.inner.height.into();
 
-        assert!(x >= 0.0 && x + width <= inner_w + 0.01, "x={x}, inner_w={inner_w}");
-        assert!(y >= 0.0 && y + height <= inner_h + 0.01, "y={y}, inner_h={inner_h}");
+        assert!(
+            x >= 0.0 && x + width <= inner_w + 0.01,
+            "x={x}, inner_w={inner_w}"
+        );
+        assert!(
+            y >= 0.0 && y + height <= inner_h + 0.01,
+            "y={y}, inner_h={inner_h}"
+        );
     }
 
     #[test]

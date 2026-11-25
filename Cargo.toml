@@ -1,6 +1,6 @@
 [package]
 name = "fastview"
-version = "0.3.1"
+version = "0.4.0"
 description = "A fast, lightweight, and modern image viewer built with Rust"
 authors = ["FastView Team"]
 license = "MIT"
@@ -9,6 +9,7 @@ documentation = "https://wsyqn6.github.io/fastview"
 keywords = ["image", "viewer", "gui", "lightweight"]
 categories = ["multimedia::images", "gui"]
 edition = "2024"
+rust-version = "1.88"
 publish = false
 build = "build.rs"
 

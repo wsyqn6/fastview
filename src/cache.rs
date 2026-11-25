@@ -234,8 +234,22 @@ mod tests {
         let mut cache = ImageCache::new(64 * 1024 * 1024);
         let path = PathBuf::from("a.jpg");
         let m = meta(8000, 8000);
-        cache.insert(path.clone(), m, Rotation::None, 1, texture(8000, 8000), &path);
-        cache.insert(path.clone(), m, Rotation::None, 2, texture(4000, 4000), &path);
+        cache.insert(
+            path.clone(),
+            m,
+            Rotation::None,
+            1,
+            texture(8000, 8000),
+            &path,
+        );
+        cache.insert(
+            path.clone(),
+            m,
+            Rotation::None,
+            2,
+            texture(4000, 4000),
+            &path,
+        );
 
         // 需要 1/4：1/1 和 1/2 都够，取更省内存的 1/2
         let (denom, _) = cache.best_for(&path, Rotation::None, 4).expect("应当命中");
@@ -258,8 +272,22 @@ mod tests {
         let b = PathBuf::from("b.jpg");
         let c = PathBuf::from("c.jpg");
 
-        cache.insert(a.clone(), meta(64, 64), Rotation::None, 1, texture(64, 64), &a);
-        cache.insert(b.clone(), meta(64, 64), Rotation::None, 1, texture(64, 64), &b);
+        cache.insert(
+            a.clone(),
+            meta(64, 64),
+            Rotation::None,
+            1,
+            texture(64, 64),
+            &a,
+        );
+        cache.insert(
+            b.clone(),
+            meta(64, 64),
+            Rotation::None,
+            1,
+            texture(64, 64),
+            &b,
+        );
         // 摸一下 a，让 b 变成最久未用
         assert!(cache.get(&a, Rotation::None, 1).is_some());
 
@@ -332,18 +360,14 @@ mod tests {
         cache.insert(path.clone(), m, Rotation::None, 2, texture(32, 32), &path);
         cache.insert(path.clone(), m, Rotation::Cw90, 2, texture(32, 32), &path);
         // 换到 180°：90° 应被淘汰，0° 基准保留
-        let dropped = cache.insert(
-            path.clone(),
-            m,
-            Rotation::Cw180,
-            2,
-            texture(32, 32),
-            &path,
-        );
+        let dropped = cache.insert(path.clone(), m, Rotation::Cw180, 2, texture(32, 32), &path);
 
         assert_eq!(dropped.len(), 1, "旧旋转角度需回收");
         assert!(cache.get(&path, Rotation::None, 2).is_some(), "0° 基准保留");
         assert!(cache.get(&path, Rotation::Cw90, 2).is_none(), "90° 被淘汰");
-        assert!(cache.get(&path, Rotation::Cw180, 2).is_some(), "新角度在缓存");
+        assert!(
+            cache.get(&path, Rotation::Cw180, 2).is_some(),
+            "新角度在缓存"
+        );
     }
 }

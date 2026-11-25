@@ -5,13 +5,13 @@
 
 use std::path::Path;
 
-use windows::core::{HSTRING, Interface};
 use windows::Win32::Foundation::GENERIC_READ;
 use windows::Win32::Graphics::Imaging::{
     CLSID_WICImagingFactory2, GUID_WICPixelFormat32bppBGRA, IWICBitmapSourceTransform,
     IWICImagingFactory, WICBitmapTransformRotate0, WICDecodeMetadataCacheOnDemand,
 };
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+use windows::core::{HSTRING, Interface};
 
 fn err(error: windows::core::Error) -> String {
     format!("WIC: {error}")

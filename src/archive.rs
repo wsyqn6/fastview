@@ -70,7 +70,9 @@ fn unique_path(root: &Path, name: &std::ffi::OsStr) -> PathBuf {
     }
     let path = Path::new(name);
     let stem = path.file_stem().unwrap_or(name).to_string_lossy();
-    let extension = path.extension().map(|ext| ext.to_string_lossy().into_owned());
+    let extension = path
+        .extension()
+        .map(|ext| ext.to_string_lossy().into_owned());
     let mut suffix = 2u32;
     loop {
         let file_name = match &extension {
@@ -115,10 +117,7 @@ fn extract_entries(
         return Err(ExtractError::NoImages);
     }
     images.sort_by(|a, b| {
-        crate::folder::natural_cmp(
-            &crate::folder::file_name(a),
-            &crate::folder::file_name(b),
-        )
+        crate::folder::natural_cmp(&crate::folder::file_name(a), &crate::folder::file_name(b))
     });
     Ok(Archive {
         root: root.to_path_buf(),
@@ -160,7 +159,10 @@ mod tests {
         );
 
         let archive = extract_images(&zip_path).expect("extract images");
-        assert_eq!(archive.first.file_name().unwrap().to_string_lossy(), "img_2.jpg");
+        assert_eq!(
+            archive.first.file_name().unwrap().to_string_lossy(),
+            "img_2.jpg"
+        );
         assert_eq!(std::fs::read(&archive.first).unwrap(), b"two");
         assert!(!archive.root().join("readme.txt").exists());
     }
@@ -211,7 +213,10 @@ mod tests {
         );
 
         let archive = extract_images(&zip_path).expect("extract images");
-        assert_eq!(archive.first.file_name().unwrap().to_string_lossy(), "aaa.jpg");
+        assert_eq!(
+            archive.first.file_name().unwrap().to_string_lossy(),
+            "aaa.jpg"
+        );
         assert!(archive.first.starts_with(archive.root()));
         assert!(!dir.path().join("escape.jpg").exists());
     }

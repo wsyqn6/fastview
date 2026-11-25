@@ -212,10 +212,7 @@ impl ViewState {
 
         let x: f32 = self.offset.x.into();
         let y: f32 = self.offset.y.into();
-        self.offset = point(
-            px(x.clamp(-max_x, max_x)),
-            px(y.clamp(-max_y, max_y)),
-        );
+        self.offset = point(px(x.clamp(-max_x, max_x)), px(y.clamp(-max_y, max_y)));
     }
 
     /// 图片在视口内的绘制区域（视口坐标）

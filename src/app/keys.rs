@@ -183,8 +183,7 @@ impl Spike {
             self.toggle_chrome(cx);
             return true;
         }
-        if plain
-            && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
+        if plain && (key.eq_ignore_ascii_case("h") || key == "?" || (modifiers.shift && key == "/"))
         {
             self.toggle_help(cx);
             return true;

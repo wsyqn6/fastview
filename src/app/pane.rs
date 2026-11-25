@@ -141,7 +141,11 @@ impl Spike {
             .top(bounds.origin.y)
             .w(bounds.size.width)
             .h(bounds.size.height)
-            .child(img(image.image.clone()).object_fit(ObjectFit::Fill).size_full())
+            .child(
+                img(image.image.clone())
+                    .object_fit(ObjectFit::Fill)
+                    .size_full(),
+            )
             .into_any_element()
     }
 

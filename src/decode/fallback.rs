@@ -22,7 +22,7 @@ pub fn decode_scaled(path: &Path, tw: u32, th: u32) -> Result<(Vec<u8>, u32, u32
     let mut rgba = resized.into_rgba8().into_raw();
 
     // gpui 的 RenderImage 吃 BGRA
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     Ok((rgba, width, height))

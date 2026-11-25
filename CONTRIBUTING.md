@@ -1,6 +1,6 @@
 # Contributing to FastView
 
-> **Current Version**: 0.1.1 (Development Preview)
+> **Current Version**: 0.4.0 (Development Preview, Windows-first)
 
 Thank you for your interest in contributing to FastView! This document provides guidelines and instructions for contributing.
 
@@ -8,7 +8,8 @@ Thank you for your interest in contributing to FastView! This document provides 
 
 ### Prerequisites
 
-- Rust 1.70 or later ([installation guide](https://www.rust-lang.org/tools/install))
+- Rust 1.88 or later (edition 2024 + let-chains; [installation guide](https://www.rust-lang.org/tools/install))
+- Windows 10/11 (gpui line is Windows-first; Linux/macOS builds are not covered by CI yet)
 - Git
 - Your favorite code editor (VS Code with rust-analyzer recommended)
 

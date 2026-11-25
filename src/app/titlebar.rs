@@ -1,8 +1,6 @@
 //! 自绘标题栏：左边菜单、右边窗口按钮，空白处可拖拽 / 双击最大化
 
-use gpui::{
-    AnyElement, Context, Div, MouseButton, Window, WindowControlArea, div, px, prelude::*,
-};
+use gpui::{AnyElement, Context, Div, MouseButton, Window, WindowControlArea, div, prelude::*, px};
 
 use super::Spike;
 use super::theme::{Palette, TITLEBAR_HEIGHT, WINDOW_BUTTON_WIDTH};

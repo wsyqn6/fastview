@@ -10,74 +10,55 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # 代码质量检查 + 测试
+  # 代码质量检查 + 测试（gpui 线 Windows 优先）
   check:
     name: Check & Test
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-      
+
       - name: Check formatting
         run: cargo fmt --check
-      
+
       - name: Run Clippy (includes cargo check)
         run: cargo clippy --all-targets -- -D warnings
-      
-      - name: Run tests
-        run: cargo test --lib
 
-  # Release 构建（仅在 main 分支或 tag 时执行）
+      - name: Run tests
+        run: cargo test --bin fastview
+
+  # 发布构建：push main 时产出验收包，正式发布由 v* tag 触发 release.yml
   build-release:
-    name: Build Release (${{ matrix.os }})
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    name: Build Release (Windows)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     timeout-minutes: 20
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: fastview-linux
-            binary_path: target/release/fastview
-          - os: windows-latest
-            artifact_name: fastview-windows
-            binary_path: target/release/fastview.exe
-          - os: macos-latest
-            artifact_name: fastview-macos
-            binary_path: target/release/fastview
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-      
+
       - name: Build release
         run: cargo build --release
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          name: fastview-windows
+          path: target/release/fastview.exe
           retention-days: 7

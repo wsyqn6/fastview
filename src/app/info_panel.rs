@@ -46,12 +46,19 @@ impl Spike {
             InfoKind::About => (
                 t.t(TextKey::About),
                 vec![
-                    format!("{} {}", t.t(TextKey::AboutVersion), env!("CARGO_PKG_VERSION")),
+                    format!(
+                        "{} {}",
+                        t.t(TextKey::AboutVersion),
+                        env!("CARGO_PKG_VERSION")
+                    ),
                     t.t(TextKey::AboutStage).to_string(),
                     t.t(TextKey::AboutFeatures).to_string(),
                 ],
             ),
-            InfoKind::Update => (t.t(TextKey::CheckUpdate), vec![t.t(TextKey::UpdateBody).to_string()]),
+            InfoKind::Update => (
+                t.t(TextKey::CheckUpdate),
+                vec![t.t(TextKey::UpdateBody).to_string()],
+            ),
         };
 
         let mut body = div().flex().flex_col().gap(px(8.0));

@@ -159,7 +159,11 @@ pub fn pick_denom_for(meta: &ImageMeta, rotation: Rotation, need_px: u32) -> u32
     }
     let swaps = swaps_axes(meta.orientation) ^ rotation.swaps_axes();
     pick_denom(
-        if swaps { meta.storage.1 } else { meta.storage.0 },
+        if swaps {
+            meta.storage.1
+        } else {
+            meta.storage.0
+        },
         need_px,
     )
 }

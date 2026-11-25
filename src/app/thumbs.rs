@@ -93,7 +93,8 @@ impl Spike {
                 let Ok(thumb) = thumb else {
                     continue;
                 };
-                let Some(buffer) = image::RgbaImage::from_raw(thumb.width, thumb.height, thumb.bgra)
+                let Some(buffer) =
+                    image::RgbaImage::from_raw(thumb.width, thumb.height, thumb.bgra)
                 else {
                     continue;
                 };

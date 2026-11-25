@@ -44,7 +44,11 @@ impl CachedPhotoInfo {
 /// 文件指纹：缓存命中校验用
 pub fn fingerprint(path: &Path) -> Result<(u64, SystemTime), String> {
     let meta = fs::metadata(path).map_err(|err| format!("无法读取文件信息：{err}"))?;
-    Ok((meta.len(), meta.modified().map_err(|err| format!("无法读取修改时间：{err}"))?))
+    Ok((
+        meta.len(),
+        meta.modified()
+            .map_err(|err| format!("无法读取修改时间：{err}"))?,
+    ))
 }
 
 /// 读取文件信息与常用 EXIF；失败只影响本张照片的信息面板
@@ -105,8 +109,8 @@ fn fill_exif(data: &mut PhotoInfoData, exif: &Exif) {
     data.taken_at = field_text(exif, Tag::DateTimeOriginal)
         .or_else(|| field_text(exif, Tag::DateTime))
         .and_then(normalize_date);
-    data.iso = field_uint(exif, Tag::PhotographicSensitivity)
-        .or_else(|| field_uint(exif, Tag::ISOSpeed));
+    data.iso =
+        field_uint(exif, Tag::PhotographicSensitivity).or_else(|| field_uint(exif, Tag::ISOSpeed));
     data.shutter = field_rational(exif, Tag::ExposureTime).and_then(format_shutter);
     data.aperture = field_rational(exif, Tag::FNumber).and_then(format_aperture);
 }

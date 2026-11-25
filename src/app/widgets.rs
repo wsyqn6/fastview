@@ -20,16 +20,12 @@ pub fn overlay<V: 'static>(
     cx: &mut Context<V>,
     on_close: impl Fn(&mut V, &mut Window, &mut Context<V>) + 'static,
 ) -> AnyElement {
-    let backdrop = div()
-        .absolute()
-        .inset_0()
-        .occlude()
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _: &MouseDownEvent, window, cx| {
-                on_close(this, window, cx);
-            }),
-        );
+    let backdrop = div().absolute().inset_0().occlude().on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+            on_close(this, window, cx);
+        }),
+    );
 
     div()
         .absolute()
@@ -136,10 +132,30 @@ fn push_stroke(path: &mut Path<Pixels>, from: Point<Pixels>, to: Point<Pixels>, 
 /// 描边矩形（四条边分别展开）
 fn push_stroke_rect(path: &mut Path<Pixels>, left: f32, top: f32, right: f32, bottom: f32) {
     let width = 1.0;
-    push_stroke(path, point(px(left), px(top)), point(px(right), px(top)), width);
-    push_stroke(path, point(px(right), px(top)), point(px(right), px(bottom)), width);
-    push_stroke(path, point(px(right), px(bottom)), point(px(left), px(bottom)), width);
-    push_stroke(path, point(px(left), px(bottom)), point(px(left), px(top)), width);
+    push_stroke(
+        path,
+        point(px(left), px(top)),
+        point(px(right), px(top)),
+        width,
+    );
+    push_stroke(
+        path,
+        point(px(right), px(top)),
+        point(px(right), px(bottom)),
+        width,
+    );
+    push_stroke(
+        path,
+        point(px(right), px(bottom)),
+        point(px(left), px(bottom)),
+        width,
+    );
+    push_stroke(
+        path,
+        point(px(left), px(bottom)),
+        point(px(left), px(top)),
+        width,
+    );
 }
 
 /// 在给定中心绘制图标
@@ -238,13 +254,17 @@ fn paint_app_logo(window: &mut Window, center: Point<Pixels>, color: Hsla) {
 
 /// 标题栏应用标：16px 单色剪影，细节交给程序图标的大尺寸版本
 pub fn app_logo(color: Hsla) -> AnyElement {
-    div().w(px(16.0)).h(px(16.0)).child(
-        canvas(
-            |bounds, _, _| bounds.center(),
-            move |_, center, window, _| paint_app_logo(window, center, color),
+    div()
+        .w(px(16.0))
+        .h(px(16.0))
+        .child(
+            canvas(
+                |bounds, _, _| bounds.center(),
+                move |_, center, window, _| paint_app_logo(window, center, color),
+            )
+            .size_full(),
         )
-        .size_full(),
-    ).into_any_element()
+        .into_any_element()
 }
 
 /// Win11 风格的窗口控制按钮
@@ -308,7 +328,12 @@ pub fn window_button(
 /// 助记符文本：`show_underline` 时字母加下划线，其余样式继承父级
 ///
 /// 下划线颜色必须显式给：`UnderlineStyle.color` 为 `None` 时回退到透明的默认色。
-pub fn mnemonic_label(label: &str, mnemonic: char, color: Hsla, show_underline: bool) -> AnyElement {
+pub fn mnemonic_label(
+    label: &str,
+    mnemonic: char,
+    color: Hsla,
+    show_underline: bool,
+) -> AnyElement {
     let (text, range) = menu::mnemonic_label(label, mnemonic);
     let styled = StyledText::new(text);
     if !show_underline {

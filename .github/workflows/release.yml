@@ -10,75 +10,35 @@ env:
   PROJECT_NAME: fastview
 
 jobs:
-  # Linux 发布
-  release-linux:
-    name: Release Linux
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-      
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Update version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-
-      - name: Build release
-        run: cargo build --release
-      
-      - name: Create package
-        run: |
-          cd target/release
-          tar czf ${{ env.PROJECT_NAME }}-linux-x86_64.tar.gz ${{ env.PROJECT_NAME }}
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-linux
-          path: target/release/${{ env.PROJECT_NAME }}-linux-x86_64.tar.gz
-          retention-days: 30
-
-  # Windows 发布
+  # Windows 发布：gpui 线当前仅 Windows 可发布
   release-windows:
     name: Release Windows
     runs-on: windows-latest
     timeout-minutes: 30
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
       - name: Update version
         shell: pwsh
         run: |
-          $VERSION = $env:GITHUB_REF -replace 'refs/tags/v', ''
-          (Get-Content Cargo.toml) -replace 'version = ".*"', "version = `"$VERSION`"" | Set-Content Cargo.toml
+          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          (Get-Content Cargo.toml) -replace '^version = ".*"', "version = `"$VERSION`"" | Set-Content Cargo.toml
 
       - name: Build release
         run: cargo build --release
-      
+
       - name: Create package
         shell: pwsh
         run: |
           Compress-Archive -Path "target\release\${{ env.PROJECT_NAME }}.exe" -DestinationPath "target\release\${{ env.PROJECT_NAME }}-windows-x86_64.zip"
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -86,65 +46,28 @@ jobs:
           path: target/release/${{ env.PROJECT_NAME }}-windows-x86_64.zip
           retention-days: 30
 
-  # macOS 发布
-  release-macos:
-    name: Release macOS
-    runs-on: macos-latest
-    timeout-minutes: 30
-    
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
-      - name: Update version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-
-      - name: Build release
-        run: cargo build --release
-      
-      - name: Create package
-        run: |
-          cd target/release
-          tar czf ${{ env.PROJECT_NAME }}-macos.tar.gz ${{ env.PROJECT_NAME }}
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-macos
-          path: target/release/${{ env.PROJECT_NAME }}-macos.tar.gz
-          retention-days: 30
-
   # 创建 GitHub Release
   create-release:
     name: Create GitHub Release
-    needs: [release-linux, release-windows, release-macos]
+    needs: [release-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
-    
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-      
+
       - name: Create Release
         uses: softprops/action-gh-release@v2.0.8
         with:
           files: |
-            artifacts/release-linux/*
             artifacts/release-windows/*
-            artifacts/release-macos/*
           draft: false
           prerelease: false
           generate_release_notes: true

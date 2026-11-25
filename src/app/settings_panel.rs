@@ -51,7 +51,12 @@ impl Spike {
     }
 
     /// 100% 与其他档位之间切换时，窗口清屏方式要跟着变
-    fn sync_window_background(&mut self, was_translucent: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn sync_window_background(
+        &mut self,
+        was_translucent: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let now_translucent = super::translucent(&self.settings);
         if was_translucent == now_translucent {
             return;
@@ -77,8 +82,8 @@ impl Spike {
         let was_translucent = super::translucent(&previous);
         self.settings = next;
 
-        let style_changed = previous.theme != self.settings.theme
-            || previous.material != self.settings.material;
+        let style_changed =
+            previous.theme != self.settings.theme || previous.material != self.settings.material;
         self.sync_window_background(was_translucent, window, cx);
         if style_changed && was_translucent == super::translucent(&self.settings) {
             self.apply_window_style(window, cx);
@@ -156,30 +161,35 @@ impl Spike {
             self.settings.opacity
         );
 
-        let panel = overlay_panel("settings-panel", PANEL_WIDTH, palette, window.viewport_size())
-            .shadow(vec![
-                BoxShadow::new(px(0.0), px(8.0), palette.shadow_strong)
-                    .blur_radius(px(24.0))
-                    .spread_radius(px(-6.0)),
-                BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
-            ])
-            // 滑杆内部已接管拖动；这里兜底处理指针滑出滑杆但仍在本面板内的情况
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                if this.opacity_slider.read(cx).dragging() {
-                    let position = event.position;
-                    this.opacity_slider
-                        .update(cx, |slider, cx| slider.move_to(position, cx));
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _, window, cx| {
-                    this.commit_opacity(window, cx);
-                }),
-            )
-            .child(panel_header(t.t(TextKey::Settings), summary, palette))
-            .children(self.settings_controls(t, palette, cx, mica_supported))
-            .child(done_button(t, palette, cx));
+        let panel = overlay_panel(
+            "settings-panel",
+            PANEL_WIDTH,
+            palette,
+            window.viewport_size(),
+        )
+        .shadow(vec![
+            BoxShadow::new(px(0.0), px(8.0), palette.shadow_strong)
+                .blur_radius(px(24.0))
+                .spread_radius(px(-6.0)),
+            BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
+        ])
+        // 滑杆内部已接管拖动；这里兜底处理指针滑出滑杆但仍在本面板内的情况
+        .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+            if this.opacity_slider.read(cx).dragging() {
+                let position = event.position;
+                this.opacity_slider
+                    .update(cx, |slider, cx| slider.move_to(position, cx));
+            }
+        }))
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(|this, _, window, cx| {
+                this.commit_opacity(window, cx);
+            }),
+        )
+        .child(panel_header(t.t(TextKey::Settings), summary, palette))
+        .children(self.settings_controls(t, palette, cx, mica_supported))
+        .child(done_button(t, palette, cx));
 
         Some(overlay(panel.into_any_element(), cx, |this, window, cx| {
             this.close_settings(window, cx);

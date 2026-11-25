@@ -28,7 +28,7 @@ pub const RADIUS_PANEL: f32 = 8.0;
 /// 菜单条目 / 控件圆角
 pub const RADIUS_ITEM: f32 = 4.0;
 /// 系统强调色取不到时的回退（Win11 默认蓝）
-pub const DEFAULT_ACCENT: u32 = 0x0078_d4;
+pub const DEFAULT_ACCENT: u32 = 0x0000_78d4;
 
 /// 明暗判定：配置优先，`System` 跟随窗口外观
 pub fn is_dark(theme: Theme, appearance: WindowAppearance) -> bool {
@@ -158,5 +158,4 @@ impl Palette {
             }
         }
     }
-
 }

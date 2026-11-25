@@ -7,20 +7,23 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt, AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Point, Pixels, Stateful, Window, div, ease_out_quint, prelude::*, px,
+    MouseMoveEvent, Pixels, Point, Stateful, Window, div, ease_out_quint, prelude::*, px,
 };
 
 use super::Spike;
-use super::theme::{
-    MENU_ITEM_HEIGHT, MENU_WIDTH, RADIUS_ITEM, RADIUS_PANEL, TITLEBAR_HEIGHT,
-};
+use super::theme::{MENU_ITEM_HEIGHT, MENU_WIDTH, RADIUS_ITEM, RADIUS_PANEL, TITLEBAR_HEIGHT};
 use super::widgets::mnemonic_label;
-use crate::menu::{MenuSpec, MenuItem};
 use crate::menu;
+use crate::menu::{MenuItem, MenuSpec};
 
 impl Spike {
     /// Alt+助记符：切换顶层菜单；未命中则收起已展开的菜单（同原生行为）
-    pub(super) fn press_mnemonic(&mut self, key: char, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn press_mnemonic(
+        &mut self,
+        key: char,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match menu::menu_by_mnemonic(key) {
             Some(index) => self.press_menu(index, window, cx),
             None => {
@@ -167,11 +170,13 @@ impl Spike {
         let panel_x = item_x.min((window_width - MENU_WIDTH - 8.0).max(8.0));
 
         let backdrop = self.menu_backdrop(cx);
-        let panel = self.menu_panel(spec, panel_x, palette, t, cx).with_animation(
-            ("menu-panel", self.menu_seq),
-            Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
-            |panel, t| panel.opacity(t).mt(px((1.0 - t) * 4.0)),
-        );
+        let panel = self
+            .menu_panel(spec, panel_x, palette, t, cx)
+            .with_animation(
+                ("menu-panel", self.menu_seq),
+                Animation::new(Duration::from_millis(120)).with_easing(ease_out_quint()),
+                |panel, t| panel.opacity(t).mt(px((1.0 - t) * 4.0)),
+            );
 
         Some(
             div()
@@ -253,16 +258,8 @@ impl Spike {
                     shortcut,
                     mnemonic,
                     cmd,
-                } => panel.child(self.menu_row(
-                    index,
-                    *label,
-                    shortcut,
-                    *mnemonic,
-                    *cmd,
-                    palette,
-                    t,
-                    cx,
-                )),
+                } => panel
+                    .child(self.menu_row(index, *label, shortcut, *mnemonic, *cmd, palette, t, cx)),
             };
         }
         panel
@@ -289,7 +286,9 @@ impl Spike {
             .rounded(px(RADIUS_ITEM))
             .text_size(px(12.0))
             .text_color(palette.text)
-            .when(self.menu_selected == Some(index), |this| this.bg(palette.active))
+            .when(self.menu_selected == Some(index), |this| {
+                this.bg(palette.active)
+            })
             .hover(move |style| style.bg(palette.hover))
             .on_mouse_move(cx.listener(move |this, _, _, cx| {
                 if this.menu_selected != Some(index) {

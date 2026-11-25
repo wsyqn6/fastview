@@ -21,7 +21,9 @@ fn main() {
                 .expect("encode ico frame")
         })
         .collect();
-    IcoEncoder::new(file).encode_images(&frames).expect("write ico");
+    IcoEncoder::new(file)
+        .encode_images(&frames)
+        .expect("write ico");
 }
 
 /// 渲染 SVG 为直 alpha RGBA；tiny-skia 内部是预乘 alpha。
@@ -36,7 +38,7 @@ fn render(svg: &str, size: u32) -> RgbaImage {
     );
 
     let mut data = pixmap.data().to_vec();
-    for pixel in data.chunks_exact_mut(4) {
+    for pixel in data.as_chunks_mut::<4>().0 {
         let alpha = pixel[3] as u32;
         if alpha == 0 {
             pixel[0] = 0;

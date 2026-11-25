@@ -9,8 +9,8 @@ use std::str::Chars;
 
 /// 能被 WIC 或 `image` 解码的常见格式
 const EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp", "ico", "tif", "tiff", "avif", "heic",
-    "heif",
+    "jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp", "ico", "tif", "tiff", "avif",
+    "heic", "heif",
 ];
 
 /// 当前目录里的图片与游标
@@ -209,10 +209,7 @@ mod tests {
         use super::InputKind;
 
         let dir = TempDir::new("kind");
-        assert!(matches!(
-            input_kind(dir.path()),
-            InputKind::Directory
-        ));
+        assert!(matches!(input_kind(dir.path()), InputKind::Directory));
         assert!(matches!(
             input_kind(Path::new("C:\\albums\\ALBUM.ZIP")),
             InputKind::Archive

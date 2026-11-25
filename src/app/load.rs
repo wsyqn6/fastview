@@ -201,7 +201,11 @@ impl Spike {
             return;
         };
         let chrome_height = TITLEBAR_HEIGHT
-            + if self.show_thumbs { THUMB_BAR_HEIGHT } else { 0.0 };
+            + if self.show_thumbs {
+                THUMB_BAR_HEIGHT
+            } else {
+                0.0
+            };
         let chrome = px(chrome_height);
         let Some(target) =
             // 下限保证浮层与标题栏不会挤乱；系统最小尺寸仍允许手动缩到更小
@@ -239,9 +243,7 @@ impl Spike {
         // 缓存命中：连 probe 都省掉；有更清晰的已解码档就直接复用，不白解一张粗档
         if let Some(meta) = self.cache.meta(&path) {
             let max_denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
-            if let Some((denom, texture)) =
-                self.cache.best_for(&path, Rotation::None, max_denom)
-            {
+            if let Some((denom, texture)) = self.cache.best_for(&path, Rotation::None, max_denom) {
                 eprintln!(
                     "[SPIKE] {} hit cache 1/{denom} ({}x{})",
                     folder::file_name(&path),
@@ -321,7 +323,12 @@ impl Spike {
     }
 
     /// 上一张 / 下一张（循环）
-    pub(super) fn step_image(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn step_image(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(folder) = self.folder.as_mut() else {
             return;
         };

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
+### Added
+- gpui 查看器：WIC DCT 分级预览、按字节预算的纹理 LRU 与预取
+- 系统缩略图条、目录翻页与只读 ZIP 直读
+- 自绘标题栏 / 菜单、云母 / 亚克力材质与透明度调节、中英文案
+- 照片信息浮层、minimap、设置面板与完整快捷键
+
+### Changed
+- 以 gpui 实现替换 egui；旧 egui 线归档至 `archive/egui`
+- 配置迁移至 `%APPDATA%\fastview\gpui-settings.json`
+- CI / Release 改为 Windows-only，并修复 tag 版本号注入
+
+### Fixed
+- 旋转先复用当前纹理，后台再补目标档
+- 缓存命中直接换纹理，避免重复解码
+
 ## [0.3.1] - 2026-05-10
 
 ### Changed

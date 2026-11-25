@@ -37,16 +37,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, BoxShadow, Bounds, Context, ExternalPaths, FileDropEvent, FocusHandle, KeyDownEvent,
-    ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, RenderImage, ScrollHandle,
-    Size, Subscription, Window, div, prelude::*, px, size,
+    AnyElement, Bounds, BoxShadow, Context, ExternalPaths, FileDropEvent, FocusHandle,
+    KeyDownEvent, ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, RenderImage,
+    ScrollHandle, Size, Subscription, Window, div, prelude::*, px, size,
 };
 
 use self::settings::Settings;
 use self::theme::{Palette, THUMB_BAR_HEIGHT, TITLEBAR_HEIGHT};
+use crate::text::{Text, TextKey};
 #[cfg(windows)]
 use crate::win;
-use crate::text::{Text, TextKey};
 use crate::{archive, cache, decode, folder, metadata, viewer};
 
 pub use boot::run;
@@ -398,11 +398,12 @@ impl Spike {
             self.window_fit_baseline = true;
         }
         if self._appearance_sub.is_none() {
-            self._appearance_sub = Some(cx.observe_window_appearance(window, |this, window, cx| {
-                this.refresh_accent();
-                this.apply_window_style(window, cx);
-                cx.notify();
-            }));
+            self._appearance_sub =
+                Some(cx.observe_window_appearance(window, |this, window, cx| {
+                    this.refresh_accent();
+                    this.apply_window_style(window, cx);
+                    cx.notify();
+                }));
         }
 
         if self._visibility_sub.is_none() {
@@ -466,7 +467,11 @@ impl Render for Spike {
         let focus_handle = self.focus_handle.clone();
         let drop_hover = self.drop_hover;
         let chrome = if chrome_hidden { 0.0 } else { TITLEBAR_HEIGHT };
-        let thumb_height = if self.show_thumbs { THUMB_BAR_HEIGHT } else { 0.0 };
+        let thumb_height = if self.show_thumbs {
+            THUMB_BAR_HEIGHT
+        } else {
+            0.0
+        };
 
         div()
             .id("app-root")
@@ -547,22 +552,13 @@ fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32, t: Text) -> A
         .left(px(0.0))
         .right(px(0.0))
         .bottom(px(thumb_height))
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .bg(palette.drop_shade),
-        )
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .rounded(px(12.0))
-                .shadow(vec![BoxShadow::new(px(0.0), px(0.0), glow)
+        .child(div().absolute().inset_0().bg(palette.drop_shade))
+        .child(div().absolute().inset_0().rounded(px(12.0)).shadow(
+            vec![BoxShadow::new(px(0.0), px(0.0), glow)
                     .blur_radius(px(12.0))
                     .spread_radius(px(-2.0))
-                    .inset()]),
-        )
+                    .inset()],
+        ))
         .child(
             div()
                 .absolute()
