@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent, Pixels, Point, Window,
-    WindowBackgroundAppearance, div, hsla, prelude::*, px,
+    WindowBackgroundAppearance, div, prelude::*, px,
 };
 
 use super::Spike;
@@ -147,10 +147,10 @@ impl Spike {
 
         let panel = overlay_panel("settings-panel", PANEL_WIDTH, palette, window.viewport_size())
             .shadow(vec![
-                BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
+                BoxShadow::new(px(0.0), px(8.0), palette.shadow_strong)
                     .blur_radius(px(24.0))
                     .spread_radius(px(-6.0)),
-                BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
+                BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
             ])
             .child(panel_header(t.t(TextKey::Settings), summary, palette))
             .children(self.settings_controls(t, palette, cx, mica_supported))
@@ -413,7 +413,7 @@ fn done_button(t: Text, palette: Palette, cx: &mut Context<Spike>) -> Div {
             .rounded(px(RADIUS_ITEM + 2.0))
             .bg(palette.accent)
             .text_size(px(12.0))
-            .text_color(hsla(0.0, 0.0, 1.0, 1.0))
+            .text_color(palette.on_accent)
             .cursor_pointer()
             .hover(|style| style.opacity(0.9))
             .on_click(cx.listener(|this, _, window, cx| this.close_settings(window, cx)))
@@ -459,7 +459,7 @@ fn toggle_row(
                         .w(px(14.0))
                         .h(px(14.0))
                         .rounded_full()
-                        .bg(hsla(0.0, 0.0, 1.0, 1.0)),
+                        .bg(palette.on_accent),
                 ),
         )
 }

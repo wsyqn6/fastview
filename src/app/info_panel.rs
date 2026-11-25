@@ -2,7 +2,7 @@
 //!
 //! 两者只是文案不同，共用一套浮层，避免为占位功能单独造窗口。
 
-use gpui::{AnyElement, Context, Window, div, hsla, prelude::*, px};
+use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 
 use super::Spike;
 use super::theme::RADIUS_ITEM;
@@ -80,7 +80,7 @@ impl Spike {
                         .rounded(px(RADIUS_ITEM + 2.0))
                         .bg(palette.accent)
                         .text_size(px(12.0))
-                        .text_color(hsla(0.0, 0.0, 1.0, 1.0))
+                        .text_color(palette.on_accent)
                         .cursor_pointer()
                         .hover(|style| style.opacity(0.9))
                         .on_click(cx.listener(|this, _, _, cx| this.close_info(cx)))

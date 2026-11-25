@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt, AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent,
-    MouseMoveEvent, Point, Pixels, Stateful, Window, div, ease_out_quint, hsla, prelude::*, px,
+    MouseMoveEvent, Point, Pixels, Stateful, Window, div, ease_out_quint, prelude::*, px,
 };
 
 use super::Spike;
@@ -231,10 +231,10 @@ impl Spike {
             .border_1()
             .border_color(palette.menu_border)
             .shadow(vec![
-                BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
+                BoxShadow::new(px(0.0), px(8.0), palette.shadow_strong)
                     .blur_radius(px(24.0))
                     .spread_radius(px(-6.0)),
-                BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
+                BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
             ])
             // 面板空白处也不要漏到遮罩上（否则点分隔线会关掉菜单）
             .occlude();

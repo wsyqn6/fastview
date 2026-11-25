@@ -6,13 +6,10 @@
 use gpui::{
     AnyElement, Context, Div, HighlightStyle, Hsla, MouseButton, MouseDownEvent, Path, PathBuilder,
     Pixels, Point, Size, Stateful, StyledText, UnderlineStyle, Window, WindowControlArea, canvas,
-    div,
-    hsla, point, prelude::*, px, rgb,
+    div, point, prelude::*, px,
 };
 
-use super::theme::{
-    CLOSE_ACTIVE, CLOSE_HOVER, ICON_SIZE, Palette, RADIUS_PANEL, WINDOW_BUTTON_WIDTH,
-};
+use super::theme::{ICON_SIZE, Palette, RADIUS_PANEL, WINDOW_BUTTON_WIDTH};
 use crate::menu;
 
 /// 浮层外壳：全窗遮罩点击关闭 + 面板居中
@@ -277,7 +274,7 @@ pub fn window_button(
                 .left(px(0.0))
                 .opacity(0.0)
                 .group_hover(id, |style| style.opacity(1.0))
-                .child(icon_element(icon, hsla(0.0, 0.0, 1.0, 1.0))),
+                .child(icon_element(icon, palette.on_accent)),
         );
     }
 
@@ -292,14 +289,14 @@ pub fn window_button(
         .window_control_area(area)
         .hover(move |style| {
             if danger {
-                style.bg(rgb(CLOSE_HOVER))
+                style.bg(palette.close_hover)
             } else {
                 style.bg(palette.hover)
             }
         })
         .active(move |style| {
             if danger {
-                style.bg(rgb(CLOSE_ACTIVE))
+                style.bg(palette.close_active)
             } else {
                 style.bg(palette.active)
             }

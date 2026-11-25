@@ -34,7 +34,7 @@ impl Spike {
             .map(|image| image.file_name())
             .unwrap_or_default();
 
-        div()
+        let bar = div()
             .flex()
             .flex_row()
             .items_center()
@@ -69,33 +69,34 @@ impl Spike {
                     .flex_1()
                     .h_full()
                     .window_control_area(WindowControlArea::Drag),
-            )
-            .child(window_button(
-                "win-min",
-                Icon::Minimize,
-                false,
-                WindowControlArea::Min,
-                palette,
-            ))
-            .child(window_button(
-                "win-max",
-                if is_maximized {
-                    Icon::Restore
-                } else {
-                    Icon::Maximize
-                },
-                false,
-                WindowControlArea::Max,
-                palette,
-            ))
-            .child(window_button(
-                "win-close",
-                Icon::Close,
-                true,
-                WindowControlArea::Close,
-                palette,
-            ))
-            .into_any_element()
+            );
+
+        bar.child(window_button(
+            "win-min",
+            Icon::Minimize,
+            false,
+            WindowControlArea::Min,
+            palette,
+        ))
+        .child(window_button(
+            "win-max",
+            if is_maximized {
+                Icon::Restore
+            } else {
+                Icon::Maximize
+            },
+            false,
+            WindowControlArea::Max,
+            palette,
+        ))
+        .child(window_button(
+            "win-close",
+            Icon::Close,
+            true,
+            WindowControlArea::Close,
+            palette,
+        ))
+        .into_any_element()
     }
 
     /// 菜单项单独包一层：`on_children_prepainted` 的索引与 `MENUS` 一一对应

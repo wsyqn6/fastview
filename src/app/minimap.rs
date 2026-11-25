@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, Bounds, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, Pixels,
-    Point, Size, Window, div, hsla, img, point, prelude::*, px, size,
+    Point, Size, Window, div, img, point, prelude::*, px, size,
 };
 
 use super::Spike;
@@ -158,11 +158,7 @@ pub(super) fn render(
     let map = layout(base, view);
     let mark = highlight(base, view, view_state, &map);
     // 深色主题用白、浅色主题用黑，保证在任意照片上都能看清可视区
-    let mark_border = if palette.text.l > 0.5 {
-        hsla(0.0, 0.0, 1.0, 0.85)
-    } else {
-        hsla(0.0, 0.0, 0.0, 0.85)
-    };
+    let mark_border = palette.minimap_mark;
 
     div()
         .id("minimap")

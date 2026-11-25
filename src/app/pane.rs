@@ -2,7 +2,7 @@
 
 use gpui::{
     AnyElement, Context, MouseButton, MouseDownEvent, MouseMoveEvent, ObjectFit, ScrollDelta,
-    ScrollEvent, Size, Window, WindowControlArea, div, hsla, img, point, prelude::*, px,
+    ScrollEvent, Size, Window, WindowControlArea, div, img, point, prelude::*, px,
 };
 
 use super::Spike;
@@ -160,7 +160,7 @@ impl Spike {
             )
         };
         let title_color = if self.error.is_some() {
-            hsla(0.0, 0.72, 0.60, 1.0)
+            palette.error
         } else {
             palette.text
         };

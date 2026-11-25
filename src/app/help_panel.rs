@@ -3,7 +3,7 @@
 //! 与设置浮层同一套做法：全窗遮罩负责关闭，面板自绘。
 //! 只列当前真实可用的快捷键，避免说明与实现脱节。
 
-use gpui::{AnyElement, BoxShadow, Context, Div, Window, div, hsla, prelude::*, px};
+use gpui::{AnyElement, BoxShadow, Context, Div, Window, div, prelude::*, px};
 
 use super::Spike;
 use super::theme::{Palette, RADIUS_ITEM};
@@ -109,10 +109,10 @@ impl Spike {
 
         let panel = overlay_panel("help-panel", PANEL_WIDTH, palette, window.viewport_size())
             .shadow(vec![
-                BoxShadow::new(px(0.0), px(8.0), hsla(0.0, 0.0, 0.0, 0.24))
+                BoxShadow::new(px(0.0), px(8.0), palette.shadow_strong)
                     .blur_radius(px(24.0))
                     .spread_radius(px(-6.0)),
-                BoxShadow::new(px(0.0), px(1.0), hsla(0.0, 0.0, 0.0, 0.14)).blur_radius(px(3.0)),
+                BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
             ])
             .child(panel_header(
                 t.t(TextKey::ShortcutsTitle),

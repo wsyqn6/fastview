@@ -38,7 +38,7 @@ use std::time::Instant;
 use gpui::{
     AnyElement, BoxShadow, Bounds, Context, ExternalPaths, FileDropEvent, FocusHandle, KeyDownEvent,
     ModifiersChangedEvent, MouseButton, MouseMoveEvent, Pixels, Point, RenderImage, ScrollHandle,
-    Size, Subscription, Window, div, hsla, prelude::*, px, size,
+    Size, Subscription, Window, div, prelude::*, px, size,
 };
 
 use self::settings::Settings;
@@ -538,12 +538,7 @@ impl Render for Spike {
 ///
 /// 不引入新物件：范围用内发光暗示，提示复用状态栏胶囊的样式与位置。
 fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32, t: Text) -> AnyElement {
-    let dark = palette.text.l > 0.5;
-    let glow = if dark {
-        hsla(0.0, 0.0, 1.0, 0.18)
-    } else {
-        hsla(0.0, 0.0, 0.0, 0.12)
-    };
+    let glow = palette.drop_glow;
 
     div()
         .absolute()
@@ -555,7 +550,7 @@ fn drop_overlay(palette: &Palette, chrome: f32, thumb_height: f32, t: Text) -> A
             div()
                 .absolute()
                 .inset_0()
-                .bg(hsla(0.0, 0.0, 0.0, 0.05)),
+                .bg(palette.drop_shade),
         )
         .child(
             div()
