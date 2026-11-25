@@ -17,6 +17,7 @@ mod keys;
 mod load;
 mod menu_layer;
 mod minimap;
+mod opacity_slider;
 mod pane;
 mod photo_info_panel;
 pub(crate) mod settings;
@@ -131,10 +132,8 @@ pub struct Spike {
     photo_info_gen: u64,
     /// `V` 无边框模式：隐藏标题栏 / 菜单 / 状态栏，但保留任务栏窗口
     hide_chrome: bool,
-    /// 正在拖动透明度滑杆
-    settings_drag: bool,
-    /// 滑杆轨道的窗口坐标（prepaint 每帧更新）
-    slider_bounds: Rc<RefCell<Option<Bounds<Pixels>>>>,
+    /// 独立滑杆实体：拖动只重绘自身
+    opacity_slider: gpui::Entity<opacity_slider::OpacitySlider>,
     /// 系统强调色（`0xRRGGBB`）
     accent: u32,
     /// 有文件拖到窗口上：整窗高亮
@@ -165,6 +164,14 @@ impl Spike {
         let auto_window_size = settings.auto_window_size;
         let status_pinned = settings.status_pinned;
         let hide_chrome = settings.hide_chrome;
+        let weak_self = cx.weak_entity();
+        let opacity_slider = cx.new(|_| {
+            opacity_slider::OpacitySlider::new(
+                settings.opacity,
+                theme::Palette::new(false, 1.0, accent),
+                weak_self,
+            )
+        });
 
         Self {
             hwnd,
@@ -209,8 +216,7 @@ impl Spike {
             photo_info_order: VecDeque::new(),
             photo_info_gen: 0,
             hide_chrome,
-            settings_drag: false,
-            slider_bounds: Rc::new(RefCell::new(None)),
+            opacity_slider,
             accent,
             drop_hover: false,
             minimap_drag: false,
@@ -423,10 +429,7 @@ impl Spike {
                     let alt_reset = std::mem::take(&mut this.alt_held);
                     let menu_closed = this.close_menu();
                     // 切走时鼠标抬起事件收不到，滑杆拖动要收尾并写盘
-                    let drag_reset = std::mem::take(&mut this.settings_drag);
-                    if drag_reset {
-                        this.settings.save();
-                    }
+                    let drag_reset = this.commit_opacity(window, cx);
                     // 拖文件时切走窗口可能收不到 drop exit，兜底清掉高亮
                     let drop_reset = std::mem::take(&mut this.drop_hover);
                     if alt_reset || menu_closed || drag_reset || drop_reset {
@@ -445,6 +448,8 @@ impl Render for Spike {
         self.ensure_window_hooks(window, cx);
 
         let palette = self.palette(window);
+        self.opacity_slider
+            .update(cx, |slider, _| slider.set_palette(palette));
         let t = self.text();
         let chrome_hidden = self.chrome_hidden(window);
         let titlebar = (!chrome_hidden).then(|| self.render_titlebar(window, cx));
@@ -500,17 +505,13 @@ impl Render for Spike {
                     cx.notify();
                 }
             }))
-            // 透明度滑杆的拖动由根元素接管：鼠标移出滑杆也不会断
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+            .on_mouse_move(cx.listener(|this, _: &MouseMoveEvent, _, cx| {
                 this.touch_status(cx);
-                if this.settings_drag && event.dragging() {
-                    this.set_opacity_at(event.position, window, cx);
-                }
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.finish_opacity_drag(cx);
+                cx.listener(|this, _, window, cx| {
+                    this.commit_opacity(window, cx);
                     // 文件拖拽结束时 exit 事件可能丢失，鼠标抬起兜底复位高亮
                     let drop_reset = std::mem::take(&mut this.drop_hover);
                     // 在 minimap 外松开也要结束导航拖动

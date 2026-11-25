@@ -157,8 +157,6 @@ pub(super) fn render(
     let base = image.logical_size(scale_factor);
     let map = layout(base, view);
     let mark = highlight(base, view, view_state, &map);
-    // 深色主题用白、浅色主题用黑，保证在任意照片上都能看清可视区
-    let mark_border = palette.minimap_mark;
 
     div()
         .id("minimap")
@@ -210,8 +208,7 @@ pub(super) fn render(
                         .h(mark.size.height)
                         .rounded(px(2.0))
                         .border_1()
-                        .border_color(mark_border)
-                        .bg(palette.accent.opacity(0.12)),
+                        .border_color(palette.accent),
                 ),
         )
         .into_any_element()

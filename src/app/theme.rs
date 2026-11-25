@@ -86,8 +86,6 @@ pub struct Palette {
     /// 拖放提示：内发光 / 压暗层
     pub drop_glow: Hsla,
     pub drop_shade: Hsla,
-    /// minimap 可视区描边：在任意照片上都要看得清
-    pub minimap_mark: Hsla,
 }
 
 impl Palette {
@@ -125,12 +123,12 @@ impl Palette {
                 shadow_soft: hsla(0.0, 0.0, 0.0, 0.14),
                 drop_glow: rgb(0xFF_FF_FF).opacity(0.18).into(),
                 drop_shade: hsla(0.0, 0.0, 0.0, 0.05),
-                minimap_mark: rgb(0xFF_FF_FF).opacity(0.85).into(),
             }
         } else {
-            // 浅色的标题栏比主体深一档且更实：半透明下只有拉开明度与 alpha，
-            // 才不会因为壁纸透上来而和主体糊成一片（暗色同理但反差天然更大）
-            let titlebar_alpha = (alpha + 0.20).min(1.0);
+            // 标题栏明暗两套都只比主体实 5 个点，显示数字更接近观感；
+            // 缩略图条仍多实 20 个点，避免壁纸透上来影响缩略图可读性
+            let titlebar_alpha = (alpha + 0.05).min(1.0);
+            let surface_alpha = (alpha + 0.20).min(1.0);
             Self {
                 dark: false,
                 text: rgb(0x1B_1F_24).opacity(0.90).into(),
@@ -144,7 +142,7 @@ impl Palette {
                 titlebar_rgb: 0xEC_EE_F1,
                 titlebar: rgb(0xEC_EE_F1).opacity(titlebar_alpha).into(),
                 content_bg: rgb(0xF7_F8_FA).opacity(alpha).into(),
-                surface_bg: rgb(0xEC_EE_F1).opacity(titlebar_alpha).into(),
+                surface_bg: rgb(0xEC_EE_F1).opacity(surface_alpha).into(),
                 card_bg: rgb(0xFF_FF_FF).opacity(0.90).into(),
                 card_border: hsla(0.0, 0.0, 0.0, 0.10),
                 menu_bg: rgb(0xFF_FF_FF).opacity(alpha.max(0.92)).into(),
@@ -157,7 +155,6 @@ impl Palette {
                 shadow_soft: hsla(0.0, 0.0, 0.0, 0.14),
                 drop_glow: hsla(0.0, 0.0, 0.0, 0.12),
                 drop_shade: hsla(0.0, 0.0, 0.0, 0.05),
-                minimap_mark: hsla(0.0, 0.0, 0.0, 0.85),
             }
         }
     }

@@ -3,7 +3,7 @@
 //! 与下拉菜单同一套做法：全窗遮罩负责关闭，面板自绘；改动即时生效并写盘。
 
 use gpui::{
-    AnyElement, BoxShadow, Context, Div, MouseButton, MouseDownEvent, Pixels, Point, Window,
+    AnyElement, BoxShadow, Context, Div, MouseButton, MouseMoveEvent, Window,
     WindowBackgroundAppearance, div, prelude::*, px,
 };
 
@@ -17,10 +17,6 @@ use crate::win;
 
 /// 设置面板宽度
 const PANEL_WIDTH: f32 = 420.0;
-/// 透明度滑杆轨道宽度
-const SLIDER_WIDTH: f32 = 180.0;
-/// 滑杆圆点直径
-const SLIDER_THUMB: f32 = 12.0;
 
 impl Spike {
     pub(super) fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -41,8 +37,7 @@ impl Spike {
             return;
         }
         self.settings_open = false;
-        self.settings_drag = false;
-        self.settings.save();
+        self.commit_opacity(window, cx);
         self.focus_handle.focus(window, cx);
         cx.notify();
     }
@@ -94,37 +89,53 @@ impl Spike {
         cx.notify();
     }
 
-    /// 拖动透明度滑杆：只改值，松手时才写盘
-    pub(super) fn set_opacity_at(
+    /// 取出滑杆最终值；只在结束时调用
+    fn take_opacity_value(&mut self, cx: &mut Context<Self>) -> (Option<u8>, bool) {
+        let dragging = self.opacity_slider.read(cx).dragging();
+        let value = dragging
+            .then(|| self.opacity_slider.update(cx, |slider, _| slider.finish()))
+            .flatten();
+        (value, dragging)
+    }
+
+    /// 应用已经取出的透明度值；不读取滑杆实体，避免子实体回调中重入
+    pub(super) fn apply_opacity_value(
         &mut self,
-        position: Point<Pixels>,
+        value: u8,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(bounds) = *self.slider_bounds.borrow() else {
-            return;
-        };
-        let width = f32::from(bounds.size.width);
-        if width <= 0.0 {
-            return;
+        if value != self.settings.opacity {
+            let was_translucent = super::translucent(&self.settings);
+            self.settings.opacity = value;
+            self.sync_window_background(was_translucent, window, cx);
+            cx.notify();
         }
-        let x = f32::from(position.x - bounds.origin.x);
-        let value = ((x / width).clamp(0.0, 1.0) * 100.0).round() as u8;
-        if value == self.settings.opacity {
-            return;
-        }
-        let was_translucent = super::translucent(&self.settings);
-        self.settings.opacity = value;
-        self.sync_window_background(was_translucent, window, cx);
-        cx.notify();
+        self.settings.save();
     }
 
-    /// 结束滑杆拖动并写盘（鼠标可能在滑杆外松开，由根元素接管）
-    pub(super) fn finish_opacity_drag(&mut self, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.settings_drag) {
+    /// 从滑杆取值并提交；仅用于父级主动收尾路径
+    pub(super) fn commit_opacity(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let (value, had_drag) = self.take_opacity_value(cx);
+        if let Some(value) = value {
+            self.apply_opacity_value(value, window, cx);
+        } else if had_drag {
+            self.settings.save();
+        }
+        had_drag
+    }
+
+    /// 无窗口上下文时（如切到帮助页）仅提交值与配置
+    pub(super) fn commit_opacity_quiet(&mut self, cx: &mut Context<Self>) -> bool {
+        let (value, had_drag) = self.take_opacity_value(cx);
+        if let Some(value) = value {
+            self.settings.opacity = value;
+        }
+        if had_drag {
             self.settings.save();
             cx.notify();
         }
+        had_drag
     }
 
     pub(super) fn render_settings_panel(
@@ -152,6 +163,20 @@ impl Spike {
                     .spread_radius(px(-6.0)),
                 BoxShadow::new(px(0.0), px(1.0), palette.shadow_soft).blur_radius(px(3.0)),
             ])
+            // 滑杆内部已接管拖动；这里兜底处理指针滑出滑杆但仍在本面板内的情况
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                if this.opacity_slider.read(cx).dragging() {
+                    let position = event.position;
+                    this.opacity_slider
+                        .update(cx, |slider, cx| slider.move_to(position, cx));
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
+                    this.commit_opacity(window, cx);
+                }),
+            )
             .child(panel_header(t.t(TextKey::Settings), summary, palette))
             .children(self.settings_controls(t, palette, cx, mica_supported))
             .child(done_button(t, palette, cx));
@@ -231,7 +256,7 @@ impl Spike {
             settings_row(t.t(TextKey::Material), material, &palette).into_any_element(),
             settings_row(
                 t.t(TextKey::Opacity),
-                self.opacity_control(palette, cx).into_any_element(),
+                self.opacity_control(palette, cx),
                 &palette,
             )
             .into_any_element(),
@@ -239,66 +264,11 @@ impl Spike {
         ]
     }
 
-    /// 透明度滑杆：与材质开关独立；100% 时材质只是不可见
-    fn opacity_control(&self, palette: Palette, cx: &mut Context<Self>) -> Div {
-        let alpha = f32::from(self.settings.opacity.min(100)) / 100.0;
-        let slider_bounds = self.slider_bounds.clone();
-        let slider = div()
-            .w(px(SLIDER_WIDTH))
-            .h(px(20.0))
-            .relative()
-            .flex()
-            .items_center()
-            .cursor_pointer()
-            .on_children_prepainted(move |bounds, _, _| {
-                if let Some(bounds) = bounds.first() {
-                    *slider_bounds.borrow_mut() = Some(*bounds);
-                }
-            })
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
-                    this.settings_drag = true;
-                    this.set_opacity_at(event.position, window, cx);
-                }),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .h(px(4.0))
-                    .rounded_full()
-                    .bg(palette.track)
-                    .child(
-                        div()
-                            .h_full()
-                            .w(px(SLIDER_WIDTH * alpha))
-                            .rounded_full()
-                            .bg(palette.accent),
-                    ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px((SLIDER_WIDTH - SLIDER_THUMB) * alpha))
-                    .top(px((20.0 - SLIDER_THUMB) / 2.0))
-                    .size(px(SLIDER_THUMB))
-                    .rounded_full()
-                    .bg(palette.accent),
-            );
-
-        div()
-            .flex()
-            .items_center()
-            .gap(px(12.0))
-            .child(slider)
-            .child(
-                div()
-                    .w(px(34.0))
-                    .text_right()
-                    .text_size(px(11.0))
-                    .text_color(palette.text_muted)
-                    .child(format!("{}%", self.settings.opacity)),
-            )
+    /// 透明度滑杆：独立实体，拖动只重绘自身
+    fn opacity_control(&self, palette: Palette, cx: &mut Context<Self>) -> AnyElement {
+        self.opacity_slider
+            .update(cx, |slider, _| slider.set_palette(palette));
+        self.opacity_slider.clone().into_any_element()
     }
 
     /// 开关区：点击复用快捷键的 toggle，状态与写盘逻辑只有一份

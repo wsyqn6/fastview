@@ -20,8 +20,7 @@ impl Spike {
         self.open_menu = None;
         self.menu_selected = None;
         if std::mem::take(&mut self.settings_open) {
-            self.settings_drag = false;
-            self.settings.save();
+            self.commit_opacity_quiet(cx);
         }
         self.help_open = false;
         self.photo_info = None;
