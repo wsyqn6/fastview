@@ -31,6 +31,11 @@ pub fn run() {
     let after_app_new = Instant::now();
     app.run(move |cx: &mut App| {
         let after_app = Instant::now();
+        // 静默注册“打开方式”候选；不接管默认程序，失败只记日志
+        #[cfg(windows)]
+        cx.background_executor()
+            .spawn(async { crate::assoc::register_silent(); })
+            .detach();
         let centered = Bounds::centered(None, size(px(960.0), px(640.0)), cx);
         let after_bounds = Instant::now();
         let options = WindowOptions {

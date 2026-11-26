@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::str::Chars;
 
 /// 能被 WIC 或 `image` 解码的常见格式
-const EXTENSIONS: &[&str] = &[
+pub(crate) const EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp", "ico", "tif", "tiff", "avif",
     "heic", "heif",
 ];
