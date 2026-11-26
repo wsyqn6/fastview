@@ -81,6 +81,18 @@ impl Spike {
         .detach();
     }
 
+    /// 单实例转发路径：当前只显示第一条，避免多张同时抢占同一张查看区
+    pub(super) fn open_sources(
+        &mut self,
+        paths: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = paths.into_iter().next() {
+            self.open_source(path, window, cx);
+        }
+    }
+
     /// 外部路径统一入口：图片、目录、zip 分流
     pub(super) fn open_source(
         &mut self,

@@ -27,6 +27,8 @@ mod menu;
 mod metadata;
 #[cfg(windows)]
 mod shell;
+#[cfg(windows)]
+mod single_instance;
 #[cfg(test)]
 mod test_util;
 mod text;

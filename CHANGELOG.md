@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2026-11-25
 
 ### Added
+- 单实例：已有进程接收新打开的图片路径，不再重复启动
 - gpui 查看器：WIC DCT 分级预览、按字节预算的纹理 LRU 与预取
 - 系统缩略图条、目录翻页与只读 ZIP 直读
 - 自绘标题栏 / 菜单、云母 / 亚克力材质与透明度调节、中英文案

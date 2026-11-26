@@ -26,12 +26,32 @@ pub fn run() {
     let translucent = super::translucent(&settings);
     let initial_path = std::env::args_os().nth(1).map(PathBuf::from);
 
+    #[cfg(windows)]
+    let first_instance = crate::single_instance::acquire();
+    #[cfg(windows)]
+    if !first_instance {
+        let paths = std::env::args_os()
+            .skip(1)
+            .map(PathBuf::from)
+            .collect::<Vec<_>>();
+        if crate::single_instance::forward(&paths) {
+            crate::spike_log!("[SPIKE] forwarded to existing instance");
+            return;
+        }
+    }
+    #[cfg(windows)]
+    let (incoming_tx, incoming_rx) = std::sync::mpsc::channel::<Vec<PathBuf>>();
+
     // application() 构造 gpui 平台（WindowsPlatform / DirectWrite），
     // run() 才启动消息循环并回调；分开计时才能定位 app 阶段的真实归属
     let app = application();
     let after_app_new = Instant::now();
     app.run(move |cx: &mut App| {
         let after_app = Instant::now();
+        #[cfg(windows)]
+        if first_instance {
+            let _ = crate::single_instance::install(incoming_tx);
+        }
         // 静默注册“打开方式”候选；不接管默认程序，失败只记日志
         #[cfg(windows)]
         cx.background_executor()
@@ -102,6 +122,37 @@ pub fn run() {
             // 让内容区直接接收键盘快捷键
             let handle = view.read(cx).focus_handle.clone();
             window.focus(&handle, cx);
+
+            #[cfg(windows)]
+            if first_instance {
+                let receiver = std::sync::Arc::new(std::sync::Mutex::new(Some(incoming_rx)));
+                let weak = view.downgrade();
+                cx.spawn(async move |cx| loop {
+                    let incoming = {
+                        let guard = receiver
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        match guard.as_ref() {
+                            Some(receiver) => receiver.try_recv(),
+                            None => break,
+                        }
+                    };
+                    match incoming {
+                        Ok(paths) => {
+                            let _ = weak.update_in(cx, |this, window, cx| {
+                                this.open_sources(paths, window, cx)
+                            });
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_millis(10))
+                                .await;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                    }
+                })
+                .detach();
+            }
 
             // 命令行传入的图片在首帧后后台解码，避免阻塞启动
             if let Some(path) = initial_path.clone() {
