@@ -50,6 +50,20 @@ impl Spike {
         }
     }
 
+    /// 切换 HKCU 文件关联；只改本程序写入的键/值
+    #[cfg(windows)]
+    pub(super) fn toggle_file_assoc(&mut self, cx: &mut Context<Self>) {
+        let result = if crate::assoc::is_registered() {
+            crate::assoc::unregister()
+        } else {
+            crate::assoc::register()
+        };
+        if let Err(error) = result {
+            eprintln!("[SPIKE] file association failed: {error}");
+        }
+        cx.notify();
+    }
+
     /// 100% 与其他档位之间切换时，窗口清屏方式要跟着变
     fn sync_window_background(
         &mut self,
@@ -271,6 +285,8 @@ impl Spike {
             )
             .into_any_element(),
             self.toggle_section(t, palette, cx).into_any_element(),
+            #[cfg(windows)]
+            self.assoc_section(t, palette, cx).into_any_element(),
         ]
     }
 
@@ -279,6 +295,29 @@ impl Spike {
         self.opacity_slider
             .update(cx, |slider, _| slider.set_palette(palette));
         self.opacity_slider.clone().into_any_element()
+    }
+
+    /// 文件关联：开关显示当前是否已注册；默认程序仍交给系统设置
+    #[cfg(windows)]
+    fn assoc_section(&self, t: Text, palette: Palette, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            .child(toggle_row(
+                t.t(TextKey::FileAssociation),
+                crate::assoc::is_registered(),
+                "settings-assoc",
+                &palette,
+                |this, cx| this.toggle_file_assoc(cx),
+                cx,
+            ))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(palette.text_muted)
+                    .child(t.t(TextKey::FileAssociationHint)),
+            )
     }
 
     /// 开关区：点击复用快捷键的 toggle，状态与写盘逻辑只有一份

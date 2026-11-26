@@ -46,6 +46,8 @@ strings! {
     Fullscreen => "全屏", "Fullscreen";
     Thumbnails => "缩略图", "Thumbnails";
     Settings => "设置", "Settings";
+    FileAssociation => "文件关联", "File Association";
+    FileAssociationHint => "注册右键打开方式；默认程序请到系统设置选择", "Registers Open with; choose the default in Windows Settings";
     Help => "帮助", "Help";
     Shortcuts => "快捷键", "Shortcuts";
     About => "关于 FastView", "About FastView";

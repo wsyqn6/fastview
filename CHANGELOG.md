@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 系统缩略图条、目录翻页与只读 ZIP 直读
 - 自绘标题栏 / 菜单、云母 / 亚克力材质与透明度调节、中英文案
 - 照片信息浮层、minimap、设置面板与完整快捷键
+- 设置中可注册 / 取消 HKCU 文件关联（右键打开方式，不接管默认程序）
 
 ### Changed
 - 以 gpui 实现替换 egui；旧 egui 线归档至 `archive/egui`

@@ -12,6 +12,8 @@
 
 mod app;
 mod archive;
+#[cfg(windows)]
+mod assoc;
 mod cache;
 #[cfg(windows)]
 mod com;
