@@ -124,7 +124,7 @@ impl Settings {
                 settings
             }
             Err(error) => {
-                eprintln!("[SPIKE] settings parse failed: {error}");
+                crate::spike_log!("[SPIKE] settings parse failed: {error}");
                 Self::default()
             }
         }
@@ -138,16 +138,16 @@ impl Settings {
         if let Some(parent) = path.parent()
             && let Err(error) = std::fs::create_dir_all(parent)
         {
-            eprintln!("[SPIKE] settings dir failed: {error}");
+            crate::spike_log!("[SPIKE] settings dir failed: {error}");
             return;
         }
         match serde_json::to_string_pretty(self) {
             Ok(text) => {
                 if let Err(error) = std::fs::write(&path, text) {
-                    eprintln!("[SPIKE] settings write failed: {error}");
+                    crate::spike_log!("[SPIKE] settings write failed: {error}");
                 }
             }
-            Err(error) => eprintln!("[SPIKE] settings encode failed: {error}"),
+            Err(error) => crate::spike_log!("[SPIKE] settings encode failed: {error}"),
         }
     }
 

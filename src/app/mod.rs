@@ -60,6 +60,8 @@ pub struct Spike {
     hwnd: isize,
     started_at: Instant,
     first_frame_logged: bool,
+    /// 首张图片纹理就绪只记一次
+    first_image_logged: bool,
     /// 系统深浅色变化时通知重绘（首帧后注册）
     _appearance_sub: Option<Subscription>,
     /// 窗口真正显示时 DWM 会重建框架，需要再压一次边框设置
@@ -177,6 +179,7 @@ impl Spike {
             hwnd,
             started_at,
             first_frame_logged: false,
+            first_image_logged: false,
             _appearance_sub: None,
             _visibility_sub: None,
             image: None,
@@ -315,7 +318,7 @@ impl Spike {
         let first_frame = !self.first_frame_logged;
         if first_frame {
             self.first_frame_logged = true;
-            eprintln!(
+            crate::spike_log!(
                 "[SPIKE] first frame after {} ms · {}",
                 self.started_at.elapsed().as_millis(),
                 self.mem_usage()

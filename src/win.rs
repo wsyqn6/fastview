@@ -499,7 +499,7 @@ pub fn open_url(url: &str) {
         )
     };
     if status.0 as usize <= 32 {
-        eprintln!("[SPIKE] open url failed: {}", status.0 as usize);
+        crate::spike_log!("[SPIKE] open url failed: {}", status.0 as usize);
     }
 }
 
@@ -582,7 +582,7 @@ fn dword_attribute(hwnd: HWND, attribute: u32, value: u32) -> i32 {
 fn set_attribute(hwnd: HWND, attribute: u32, value: u32) -> bool {
     let result = dword_attribute(hwnd, attribute, value);
     if result != 0 {
-        eprintln!("[SPIKE] DwmSetWindowAttribute({attribute}) failed: {result:#x}");
+        crate::spike_log!("[SPIKE] DwmSetWindowAttribute({attribute}) failed: {result:#x}");
         return false;
     }
     true

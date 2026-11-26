@@ -44,6 +44,8 @@ cargo run
 cargo run --release
 ```
 
+Debug 构建保留终端；release 构建隐藏控制台。排查发布版时设置 `FASTVIEW_LOG=1`，日志写入 `%APPDATA%\fastview\fastview.log`（超过 1 MiB 自动截断）。
+
 ### Code Style
 
 FastView follows standard Rust conventions:

@@ -294,12 +294,12 @@ impl Spike {
                 #[cfg(windows)]
                 crate::win::open_url(crate::win::RELEASES_URL);
                 #[cfg(not(windows))]
-                eprintln!("[SPIKE] releases: {}", crate::win::RELEASES_URL);
+                crate::spike_log!("[SPIKE] releases: {}", crate::win::RELEASES_URL);
                 return;
             }
         }
 
-        eprintln!("[SPIKE] command {cmd:?}");
+        crate::spike_log!("[SPIKE] command {cmd:?}");
         cx.notify();
     }
 }

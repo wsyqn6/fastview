@@ -154,7 +154,7 @@ fn register() -> Result<(), String> {
 /// 启动时静默注册；失败只记日志，不影响查看器
 pub fn register_silent() {
     if let Err(error) = register() {
-        eprintln!("[SPIKE] file association failed: {error}");
+        crate::spike_log!("[SPIKE] file association failed: {error}");
     }
 }
 

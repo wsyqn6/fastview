@@ -10,6 +10,9 @@
 //!
 //! 应用实现见 `app` 模块；首帧不做整图解码（见 `decode` 模块）。
 
+// debug 保留终端看日志；release 隐藏控制台，日志改由 FASTVIEW_LOG 写文件
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod archive;
 #[cfg(windows)]
@@ -19,6 +22,7 @@ mod cache;
 mod com;
 mod decode;
 mod folder;
+mod log;
 mod menu;
 mod metadata;
 #[cfg(windows)]

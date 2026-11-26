@@ -117,7 +117,7 @@ impl Spike {
                 }
             }
 
-            eprintln!(
+            crate::spike_log!(
                 "[SPIKE] thumbnails {loaded}/{total} in {} ms",
                 started.elapsed().as_millis()
             );

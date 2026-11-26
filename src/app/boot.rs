@@ -18,6 +18,7 @@ use crate::win;
 /// 创建主窗口并运行事件循环
 pub fn run() {
     let started_at = Instant::now();
+    crate::spike_log!("[SPIKE] launch pid={}", std::process::id());
     // 配置在开窗之前读：材质与透明度决定首帧用透明还是实色背景
     let settings = Settings::load();
     let after_settings = Instant::now();
@@ -86,7 +87,7 @@ pub fn run() {
 
             let view = cx.new(|cx| Spike::new(hwnd, started_at, settings, cx));
             let after_view = Instant::now();
-            eprintln!(
+            crate::spike_log!(
                 "[SPIKE] boot {} ms: settings {} · app_new {} · app_run {} · bounds {} · open_window {} · native {} · view {}",
                 after_view.duration_since(started_at).as_millis(),
                 after_settings.duration_since(started_at).as_millis(),

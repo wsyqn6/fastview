@@ -150,7 +150,7 @@ impl Spike {
                     this.show_error(message, cx);
                 }
                 Err(ExtractError::Failed(message)) => {
-                    eprintln!("[SPIKE] open archive failed: {message}");
+                    crate::spike_log!("[SPIKE] open archive failed: {message}");
                     let message = this.text().t(TextKey::ArchiveFailed);
                     this.show_error(message, cx);
                 }
@@ -164,6 +164,18 @@ impl Spike {
         self.loading = false;
         self.error = Some(message.to_string());
         cx.notify();
+    }
+
+    /// 首张图片纹理就绪打点；与 first frame 分开，便于区分解码和渲染成本
+    fn log_first_image(&mut self, source: &str) {
+        if self.first_image_logged {
+            return;
+        }
+        self.first_image_logged = true;
+        crate::spike_log!(
+            "[SPIKE] first image ready after {} ms · {source}",
+            self.started_at.elapsed().as_millis()
+        );
     }
 
     pub(super) fn toggle_auto_window_size(&mut self, cx: &mut Context<Self>) {
@@ -244,7 +256,7 @@ impl Spike {
         if let Some(meta) = self.cache.meta(&path) {
             let max_denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
             if let Some((denom, texture)) = self.cache.best_for(&path, Rotation::None, max_denom) {
-                eprintln!(
+                crate::spike_log!(
                     "[SPIKE] {} hit cache 1/{denom} ({}x{})",
                     folder::file_name(&path),
                     meta.storage.0,
@@ -253,13 +265,14 @@ impl Spike {
                 self.loading = false;
                 self.view = viewer::ViewState::default();
                 self.present_cached(path, meta, Rotation::None, denom, texture, cx);
+                self.log_first_image("cache hit");
                 self.maybe_fit_window(fit_window, window, cx);
                 self.prefetch_neighbors(window, cx);
                 return;
             }
         }
 
-        eprintln!(
+        crate::spike_log!(
             "[SPIKE] loading {} (need {need_px}px @{}x)",
             path.display(),
             window.scale_factor()
@@ -298,9 +311,10 @@ impl Spike {
                         this.error = None;
                         let texture = viewer::texture(preview);
                         this.present(path, meta, Rotation::None, denom, texture, window, cx);
+                        this.log_first_image("decoded");
                         this.maybe_fit_window(fit_window, window, cx);
                         // 打点在 present 之后：此时缓存已更新，读到的才是上屏真实占用
-                        eprintln!(
+                        crate::spike_log!(
                             "[SPIKE] {name} → {}x{} (1/{denom}) via {backend} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
                             display.0,
                             display.1,
@@ -386,7 +400,7 @@ impl Spike {
         // 走 present 让纹理纳入缓存管理（否则 atlas 无法回收）；denom 沿用当前档位，
         // 下一帧 schedule_sharpen 会按目标角度重新选档，后台补到足够清晰。
         if let Some(rotated) = viewer::rotate_texture(&source, clockwise) {
-            eprintln!("[SPIKE] {name} rotated to {rotation:?} (instant texture)");
+            crate::spike_log!("[SPIKE] {name} rotated to {rotation:?} (instant texture)");
             self.view = viewer::ViewState::default();
             self.present(
                 path.clone(),
@@ -589,7 +603,7 @@ impl Spike {
                     for image in dropped {
                         let _ = window.drop_image(image);
                     }
-                    eprintln!(
+                    crate::spike_log!(
                         "[SPIKE] prefetched {} 1/{denom} in {} ms",
                         folder::file_name(&path),
                         started.elapsed().as_millis()
@@ -639,7 +653,7 @@ impl Spike {
         if let Some(meta) = known_meta
             && let Some(texture) = self.cache.get(&path, rotation, want)
         {
-            eprintln!(
+            crate::spike_log!(
                 "[SPIKE] {} sharpen hit cache 1/{want}",
                 folder::file_name(&path)
             );
@@ -649,7 +663,7 @@ impl Spike {
             return;
         }
 
-        eprintln!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
+        crate::spike_log!("[SPIKE] sharpening to 1/{want} (need {need_px}px)");
 
         cx.spawn(async move |this, cx| {
             // 排队期间已切图：清掉占位标志，让新图的补档不受阻
@@ -695,7 +709,7 @@ impl Spike {
                         let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
                         let texture = viewer::texture(preview);
                         this.present(path, meta, rotation, denom, texture, window, cx);
-                        eprintln!(
+                        crate::spike_log!(
                             "[SPIKE] sharpened to 1/{denom} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
                             elapsed.as_millis(),
                             tex_size.0,
