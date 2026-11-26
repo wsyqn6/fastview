@@ -1,6 +1,4 @@
-//! 通用信息浮层：关于 / 检查更新占位
-//!
-//! 两者只是文案不同，共用一套浮层，避免为占位功能单独造窗口。
+//! 关于浮层：显示版本与当前构建说明
 
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 
@@ -12,7 +10,6 @@ use crate::text::TextKey;
 #[derive(Clone, Copy)]
 pub(super) enum InfoKind {
     About,
-    Update,
 }
 
 impl Spike {
@@ -39,27 +36,19 @@ impl Spike {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let kind = self.info?;
+        self.info?;
         let palette = self.palette(window);
         let t = self.text();
-        let (title, lines) = match kind {
-            InfoKind::About => (
-                t.t(TextKey::About),
-                vec![
-                    format!(
-                        "{} {}",
-                        t.t(TextKey::AboutVersion),
-                        env!("CARGO_PKG_VERSION")
-                    ),
-                    t.t(TextKey::AboutStage).to_string(),
-                    t.t(TextKey::AboutFeatures).to_string(),
-                ],
+        let title = t.t(TextKey::About);
+        let lines = vec![
+            format!(
+                "{} {}",
+                t.t(TextKey::AboutVersion),
+                env!("CARGO_PKG_VERSION")
             ),
-            InfoKind::Update => (
-                t.t(TextKey::CheckUpdate),
-                vec![t.t(TextKey::UpdateBody).to_string()],
-            ),
-        };
+            t.t(TextKey::AboutStage).to_string(),
+            t.t(TextKey::AboutFeatures).to_string(),
+        ];
 
         let mut body = div().flex().flex_col().gap(px(8.0));
         for line in lines {

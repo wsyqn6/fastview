@@ -291,7 +291,10 @@ impl Spike {
                 return;
             }
             Cmd::CheckUpdate => {
-                self.open_info(InfoKind::Update, cx);
+                #[cfg(windows)]
+                crate::win::open_url(crate::win::RELEASES_URL);
+                #[cfg(not(windows))]
+                eprintln!("[SPIKE] releases: {}", crate::win::RELEASES_URL);
                 return;
             }
         }

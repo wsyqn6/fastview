@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 以 gpui 实现替换 egui；旧 egui 线归档至 `archive/egui`
 - 配置迁移至 `%APPDATA%\fastview\gpui-settings.json`
 - CI / Release 改为 Windows-only，并修复 tag 版本号注入
+- 「获取更新」改为打开 GitHub 发布页，不自动下载或替换程序
 
 ### Fixed
 - 旋转先复用当前纹理，后台再补目标档

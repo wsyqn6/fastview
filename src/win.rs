@@ -10,12 +10,16 @@ use core::ffi::c_void;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use windows::Win32::Foundation::{HWND as SubclassHwnd, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
+use windows::Win32::UI::Shell::{
+    DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass, ShellExecuteW,
+};
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL as WINDOW_SHOW_NORMAL;
 use windows::Win32::UI::WindowsAndMessaging::{
     HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTMAXBUTTON, HTRIGHT,
     NCCALCSIZE_PARAMS, WM_CANCELMODE, WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NCCALCSIZE,
     WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONUP,
 };
+use windows::core::PCWSTR;
 use windows_sys::Win32::Foundation::{HWND, POINT as SysPoint, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -475,6 +479,27 @@ fn resume_backdrop(hwnd: HWND) {
     let value = ACTIVE_BACKDROP.load(Ordering::Relaxed);
     if value != DWMSBT_NONE {
         let _ = set_system_backdrop(hwnd, value);
+    }
+}
+
+/// 发布页地址：当前不自动下载，只把用户送到 GitHub 发布页
+pub const RELEASES_URL: &str = "https://github.com/wsyqn6/fastview/releases/latest";
+
+/// 用系统浏览器打开 URL；失败只记日志，不影响查看器
+pub fn open_url(url: &str) {
+    let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+    let status = unsafe {
+        ShellExecuteW(
+            None,
+            windows::core::w!("open"),
+            PCWSTR(url.as_ptr()),
+            None,
+            None,
+            WINDOW_SHOW_NORMAL,
+        )
+    };
+    if status.0 as usize <= 32 {
+        eprintln!("[SPIKE] open url failed: {}", status.0 as usize);
     }
 }
 

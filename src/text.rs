@@ -49,7 +49,7 @@ strings! {
     Help => "帮助", "Help";
     Shortcuts => "快捷键", "Shortcuts";
     About => "关于 FastView", "About FastView";
-    CheckUpdate => "检查更新", "Check for Updates";
+    CheckUpdate => "获取更新", "Get Updates";
     PhotoInfo => "照片信息", "Photo Info";
     PhotoInfoCapture => "拍摄", "Capture";
 
@@ -114,7 +114,6 @@ strings! {
     AboutVersion => "版本", "Version";
     AboutStage => "Rust + GPUI 实验版本", "Rust + GPUI experimental build";
     AboutFeatures => "分级解码 · 本地缓存 · 拖拽打开", "Tiered decoding · local cache · drag & drop";
-    UpdateBody => "当前为实验版本，暂未接入更新服务。", "Experimental build; update service is not available yet.";
 
     GroupImage => "图像", "Image";
     GroupCamera => "相机", "Camera";
