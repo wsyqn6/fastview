@@ -20,10 +20,17 @@ use crate::win;
 use crate::{folder, viewer};
 
 /// 后台 probe + 解码的结果
-struct Decoded {
-    meta: ImageMeta,
-    preview: Preview,
-    elapsed: Duration,
+pub(super) struct Decoded {
+    pub(super) meta: ImageMeta,
+    pub(super) preview: Preview,
+    pub(super) elapsed: Duration,
+}
+
+/// 启动阶段提前解码的首图结果；窗口就绪后按路径与缩放匹配复用
+pub(super) struct Preloaded {
+    pub(super) path: PathBuf,
+    pub(super) need_px: u32,
+    pub(super) result: Result<Decoded, String>,
 }
 
 /// 解码排队期间generation已变则跳过，省掉无用的后台占用
@@ -39,7 +46,7 @@ fn size_diff(a: Size<Pixels>, b: Size<Pixels>) -> Pixels {
 }
 
 /// 统一的后台解码入口：已有 meta 时跳过 probe，预览按需选档
-async fn decode_task(
+pub(super) async fn decode_task(
     path: PathBuf,
     need_px: u32,
     rotation: Rotation,
@@ -190,6 +197,50 @@ impl Spike {
         );
     }
 
+    /// 保存启动阶段提前解码的结果，等待窗口就绪后匹配复用
+    pub(super) fn set_preload(&mut self, preload: Preloaded) {
+        self.preload = Some(preload);
+    }
+
+    /// 解码结果上屏：预解码与常规后台解码共用，避免重复逻辑
+    fn present_decoded(
+        &mut self,
+        path: PathBuf,
+        decoded: Decoded,
+        fit_window: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        source: &str,
+    ) {
+        let Decoded {
+            meta,
+            preview,
+            elapsed,
+        } = decoded;
+        let name = folder::file_name(&path).to_string();
+        let display = meta.display_size();
+        let denom = preview.denom;
+        let backend = preview.backend;
+        let tex_size = (preview.width(), preview.height());
+        let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
+
+        self.view = Default::default();
+        self.error = None;
+        let texture = viewer::texture(preview);
+        self.present(path, meta, Rotation::None, denom, texture, window, cx);
+        self.log_first_image(source);
+        self.maybe_fit_window(fit_window, window, cx);
+        crate::spike_log!(
+            "[SPIKE] {name} → {}x{} (1/{denom}) via {backend} in {} ms, texture {}x{} {tex_mb:.2} MB · {source}",
+            display.0,
+            display.1,
+            elapsed.as_millis(),
+            tex_size.0,
+            tex_size.1
+        );
+        self.prefetch_neighbors(window, cx);
+    }
+
     pub(super) fn toggle_auto_window_size(&mut self, cx: &mut Context<Self>) {
         self.settings.auto_window_size = !self.settings.auto_window_size;
         self.window_fit_enabled = self.settings.auto_window_size;
@@ -264,6 +315,24 @@ impl Spike {
 
         let need_px = self.need_px(window);
 
+        // 启动阶段预解码：尺寸够用就直接复用，避免重复 probe + WIC 解码
+        if let Some(preloaded) = self
+            .preload
+            .take()
+            .filter(|preloaded| preloaded.path == path && preloaded.need_px >= need_px)
+        {
+            match preloaded.result {
+                Ok(decoded) => {
+                    self.loading = false;
+                    self.present_decoded(path, decoded, fit_window, window, cx, "preloaded");
+                    return;
+                }
+                Err(message) => {
+                    crate::spike_log!("[SPIKE] preload failed: {message}");
+                }
+            }
+        }
+
         // 缓存命中：连 probe 都省掉；有更清晰的已解码档就直接复用，不白解一张粗档
         if let Some(meta) = self.cache.meta(&path) {
             let max_denom = decode::pick_denom_for(&meta, Rotation::None, need_px);
@@ -296,7 +365,6 @@ impl Spike {
             if stale(&this, cx, load_id) {
                 return;
             }
-            let name = folder::file_name(&path);
             let result = cx
                 .background_executor()
                 .spawn(decode_task(path.clone(), need_px, Rotation::None, None))
@@ -309,33 +377,8 @@ impl Spike {
                 }
                 this.loading = false;
                 match result {
-                    Ok(Decoded {
-                        meta,
-                        preview,
-                        elapsed,
-                    }) => {
-                        let display = meta.display_size();
-                        let denom = preview.denom;
-                        let backend = preview.backend;
-                        let tex_size = (preview.width(), preview.height());
-                        let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
-                        this.view = viewer::ViewState::default();
-                        this.error = None;
-                        let texture = viewer::texture(preview);
-                        this.present(path, meta, Rotation::None, denom, texture, window, cx);
-                        this.log_first_image("decoded");
-                        this.maybe_fit_window(fit_window, window, cx);
-                        // 打点在 present 之后：此时缓存已更新，读到的才是上屏真实占用
-                        crate::spike_log!(
-                            "[SPIKE] {name} → {}x{} (1/{denom}) via {backend} in {} ms, texture {}x{} {tex_mb:.2} MB · {}",
-                            display.0,
-                            display.1,
-                            elapsed.as_millis(),
-                            tex_size.0,
-                            tex_size.1,
-                            this.mem_usage()
-                        );
-                        this.prefetch_neighbors(window, cx);
+                    Ok(decoded) => {
+                        this.present_decoded(path, decoded, fit_window, window, cx, "decoded");
                     }
                     Err(message) => {
                         this.error = Some(message);

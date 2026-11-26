@@ -15,6 +15,15 @@ use super::theme;
 #[cfg(windows)]
 use crate::win;
 
+/// 启动阶段按初始窗口尺寸估算解码宽度；放大一点避免复用时分辨率不够
+fn speculative_need_px() -> u32 {
+    #[cfg(windows)]
+    let scale = unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForSystem() } as f32 / 96.0;
+    #[cfg(not(windows))]
+    let scale = 1.0;
+    (960.0 * scale * 1.25).round().max(1.0) as u32
+}
+
 /// 创建主窗口并运行事件循环
 pub fn run() {
     let started_at = Instant::now();
@@ -46,6 +55,38 @@ pub fn run() {
     // run() 才启动消息循环并回调；分开计时才能定位 app 阶段的真实归属
     let app = application();
     let after_app_new = Instant::now();
+
+    // 首图解码与 gpui 事件循环/建窗并行；窗口就绪后按尺寸匹配复用
+    let (preload_tx, preload_rx) = std::sync::mpsc::channel::<super::load::Preloaded>();
+    let preload_spec = initial_path.clone().and_then(|path| {
+        matches!(
+            crate::folder::input_kind(&path),
+            crate::folder::InputKind::Image
+        )
+        .then_some((path, speculative_need_px()))
+    });
+    if let Some((path, need_px)) = &preload_spec {
+        let tx = preload_tx.clone();
+        let path = path.clone();
+        let need_px = *need_px;
+        app.background_executor()
+            .spawn(async move {
+                let result = super::load::decode_task(
+                    path.clone(),
+                    need_px,
+                    crate::decode::Rotation::None,
+                    None,
+                )
+                .await;
+                let _ = tx.send(super::load::Preloaded {
+                    path,
+                    need_px,
+                    result,
+                });
+            })
+            .detach();
+    }
+
     app.run(move |cx: &mut App| {
         let after_app = Instant::now();
         #[cfg(windows)]
@@ -118,6 +159,10 @@ pub fn run() {
                 after_native.duration_since(after_window).as_millis(),
                 after_view.duration_since(after_native).as_millis(),
             );
+
+            if let Ok(preloaded) = preload_rx.try_recv() {
+                view.update(cx, |this, _| this.set_preload(preloaded));
+            }
 
             // 让内容区直接接收键盘快捷键
             let handle = view.read(cx).focus_handle.clone();

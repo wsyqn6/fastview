@@ -62,6 +62,8 @@ pub struct Spike {
     first_frame_logged: bool,
     /// 首张图片纹理就绪只记一次
     first_image_logged: bool,
+    /// 启动阶段提前解码的首图结果
+    preload: Option<load::Preloaded>,
     /// 系统深浅色变化时通知重绘（首帧后注册）
     _appearance_sub: Option<Subscription>,
     /// 窗口真正显示时 DWM 会重建框架，需要再压一次边框设置
@@ -180,6 +182,7 @@ impl Spike {
             started_at,
             first_frame_logged: false,
             first_image_logged: false,
+            preload: None,
             _appearance_sub: None,
             _visibility_sub: None,
             image: None,
