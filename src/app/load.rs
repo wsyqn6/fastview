@@ -202,6 +202,27 @@ impl Spike {
         self.preload = Some(preload);
     }
 
+    /// 首图后的预取延后，避免和启动/首帧抢 CPU；切图仍立即预取
+    fn maybe_prefetch(&mut self, first_image: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !first_image {
+            self.prefetch_neighbors(window, cx);
+            return;
+        }
+        let load_id = self.load_id;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                if this.load_id == load_id {
+                    this.prefetch_neighbors(window, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// 解码结果上屏：预解码与常规后台解码共用，避免重复逻辑
     fn present_decoded(
         &mut self,
@@ -223,6 +244,7 @@ impl Spike {
         let backend = preview.backend;
         let tex_size = (preview.width(), preview.height());
         let tex_mb = preview.byte_len() as f64 / 1_048_576.0;
+        let first_image = !self.first_image_logged;
 
         self.view = Default::default();
         self.error = None;
@@ -238,7 +260,7 @@ impl Spike {
             tex_size.0,
             tex_size.1
         );
-        self.prefetch_neighbors(window, cx);
+        self.maybe_prefetch(first_image, window, cx);
     }
 
     pub(super) fn toggle_auto_window_size(&mut self, cx: &mut Context<Self>) {
@@ -345,10 +367,11 @@ impl Spike {
                 );
                 self.loading = false;
                 self.view = viewer::ViewState::default();
+                let first_image = !self.first_image_logged;
                 self.present_cached(path, meta, Rotation::None, denom, texture, cx);
                 self.log_first_image("cache hit");
                 self.maybe_fit_window(fit_window, window, cx);
-                self.prefetch_neighbors(window, cx);
+                self.maybe_prefetch(first_image, window, cx);
                 return;
             }
         }

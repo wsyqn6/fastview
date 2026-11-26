@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - 首图解码与 gpui 启动并行，窗口就绪后直接复用预解码结果
+- 首图后的邻居预取延后 250ms，切图仍立即预取
 - 以 gpui 实现替换 egui；旧 egui 线归档至 `archive/egui`
 - 配置迁移至 `%APPDATA%\fastview\gpui-settings.json`
 - CI / Release 改为 Windows-only，并修复 tag 版本号注入
