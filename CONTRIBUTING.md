@@ -44,7 +44,7 @@ cargo run
 cargo run --release
 ```
 
-Debug 构建保留终端；release 构建隐藏控制台。排查发布版时设置 `FASTVIEW_LOG=1`，日志写入 `%APPDATA%\fastview\fastview.log`（超过 1 MiB 自动截断）。
+Debug 构建保留终端；release 构建隐藏控制台。日志默认写入 `%APPDATA%\fastview\fastview.log`（超过 1 MiB 自动截断），设置 `FASTVIEW_LOG=0` 可关闭。
 
 ### Code Style
 

@@ -1,7 +1,7 @@
-//! 轻量诊断日志：debug 输出终端，release 可选写入文件
+//! 轻量诊断日志：debug 输出终端，release 写文件
 //!
-//! release 默认静默；设置 `FASTVIEW_LOG=1` 后写到
-//! `%APPDATA%\fastview\fastview.log`，超过 1 MiB 自动截断。
+//! 默认写 `%APPDATA%\fastview\fastview.log`，超过 1 MiB 自动截断；
+//! 设置 `FASTVIEW_LOG=0` 可关闭文件日志。
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -13,7 +13,9 @@ const MAX_LOG_BYTES: u64 = 1024 * 1024;
 static LOG_FILE: OnceLock<Mutex<Option<File>>> = OnceLock::new();
 
 fn enabled() -> bool {
-    std::env::var("FASTVIEW_LOG").is_ok_and(|value| !value.is_empty() && value != "0")
+    std::env::var("FASTVIEW_LOG")
+        .map(|value| value != "0")
+        .unwrap_or(true)
 }
 
 fn log_path() -> Option<PathBuf> {
@@ -52,7 +54,7 @@ fn log_file() -> &'static Mutex<Option<File>> {
     LOG_FILE.get_or_init(|| Mutex::new(open_log()))
 }
 
-/// 写一条日志； debug 总输出终端，release 仅写启用后的文件
+/// 写一条日志； debug 总输出终端，release 默认写文件（`FASTVIEW_LOG=0` 关闭）
 pub fn write(message: &str) {
     #[cfg(debug_assertions)]
     eprintln!("{message}");
